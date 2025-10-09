@@ -2,7 +2,31 @@
 | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | <video width="100%" height="100%" controls src="https://github.com/calint/platformio-bam/assets/1920811/51fba3c0-08a6-4c6c-8f55-ef64c6cfcafe"></video> | <video width="100%" height="100%" controls src="https://github.com/calint/platformio-bam/assets/1920811/c6bc8561-14d7-4e2f-bc48-a28126c2fc9c"></video> |
 
-## intention
+## StepperGUI Project
+
+**Current Implementation**: ESP32-S3 based GUI controller for stepper motors using LVGL and ESP-NOW communication.
+
+### Features
+* ✅ Modern LVGL-based touch interface with custom controls
+* ✅ ESP-NOW wireless communication with stepper controller  
+* ✅ Multiple speed controls (Slow, Medium, Fast) for Up/Down movement
+* ✅ Real-time slider controls with visual feedback
+* ✅ Auto-save and reset functionality
+* ✅ Debug configuration with USB CDC support for ESP32-S3
+* ✅ Touch interface with custom arrow fonts
+
+### Hardware Setup
+* **Target**: JC4827W543C (ESP32-S3 with 4.3" capacitive touch display)
+* **Display**: 480×272 TFT with GT911 touch controller
+* **Communication**: ESP-NOW for wireless stepper motor control
+* **Power**: USB-C programming and power
+
+---
+
+## Original BAM Game Engine
+
+*The project was originally developed as a toy game engine with the following intentions:*
+
 * developing using arduino framework with visual code and platformio
 * exploring the devices by developing a toy game
 * developing a platform-independent toy game engine featuring:
