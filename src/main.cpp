@@ -896,9 +896,11 @@ void create_band_radio_buttons() {
     if (position_system_initialized && i == current_band_index) {
       lv_obj_add_state(btn, LV_STATE_CHECKED);
       last_band_btn = btn;
+      Serial.printf("Restored band button: %s (index %d)\n", bandButtons[i].label, i);
     } else if (!position_system_initialized && i == 0) {
       lv_obj_add_state(btn, LV_STATE_CHECKED);
       last_band_btn = btn;
+      Serial.printf("Default band button: %s (index %d)\n", bandButtons[i].label, i);
     }
   }
 }
@@ -927,9 +929,11 @@ void create_mode_radio_buttons() {
     if (position_system_initialized && i == current_mode_index) {
       lv_obj_add_state(btn, LV_STATE_CHECKED);
       last_mode_btn = btn;
+      Serial.printf("Restored mode button: %s (index %d)\n", modeButtons[i].label, i);
     } else if (!position_system_initialized && i == 0) {
       lv_obj_add_state(btn, LV_STATE_CHECKED);
       last_mode_btn = btn;
+      Serial.printf("Default mode button: %s (index %d)\n", modeButtons[i].label, i);
     }
   }
 }
@@ -1114,6 +1118,12 @@ void setup() {
     initialize_position_array();
   }
   position_system_initialized = true;
+  
+  // Display startup state for debugging
+  Serial.printf("Startup state - Band: %s (index %d), Mode: %s (index %d), Position: %d\n",
+                bandButtons[current_band_index].label, current_band_index,
+                modeButtons[current_mode_index].label, current_mode_index,
+                (int)current_stepper_position);
 
   display_touch_init();
   Serial.println("Display and touch initialized");
@@ -1139,6 +1149,13 @@ void setup() {
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
     Serial.println("Failed to add peer");
   }
+  
+  // Move stepper to saved position on startup
+  Serial.printf("Moving to startup position: %d for %s/%s\n", 
+                (int)current_stepper_position,
+                bandButtons[current_band_index].label,
+                modeButtons[current_mode_index].label);
+  send_message_to_controller(CMD_MOVE_TO, current_stepper_position);
 
   Serial.println("Setup done");
 }
