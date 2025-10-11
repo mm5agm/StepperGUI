@@ -1,0 +1,3 @@
+[submodule "MagLoop_Common_Files"]
+	path = MagLoop_Common_Files
+	url = https://github.com/mm5agm/MagLoop_Common_Files.git
