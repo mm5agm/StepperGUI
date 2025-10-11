@@ -455,9 +455,24 @@ static bool load_positions_from_file() {
   autosave_on = (positionArray[0][2] != 0);
   current_stepper_position = positionArray[0][3];
   
-  Serial.println("Positions loaded from preferences");
-  Serial.printf("Last band: %d, Last mode: %d, AutoSave: %s\n", 
-                current_band_index, current_mode_index, autosave_on ? "On" : "Off");
+  Serial.println("Positions loaded from preferences:");
+  Serial.printf("  Header: band_index=%d, mode_index=%d, autosave=%d, position=%d\n", 
+                current_band_index, current_mode_index, (int)positionArray[0][2], (int)current_stepper_position);
+  
+  // Validate loaded indices
+  if (current_band_index < 0 || current_band_index >= 6) {
+    Serial.printf("  WARNING: Invalid band index %d, resetting to 0\n", current_band_index);
+    current_band_index = 0;
+  }
+  if (current_mode_index < 0 || current_mode_index >= 4) {
+    Serial.printf("  WARNING: Invalid mode index %d, resetting to 0\n", current_mode_index);
+    current_mode_index = 0;
+  }
+  
+  Serial.printf("  Final: Band=%s(%d), Mode=%s(%d), Position=%d, AutoSave=%s\n", 
+                bandButtons[current_band_index].label, current_band_index,
+                modeButtons[current_mode_index].label, current_mode_index,
+                (int)current_stepper_position, autosave_on ? "On" : "Off");
   return true;
 }
 
@@ -473,9 +488,12 @@ static void update_current_position(int32_t position) {
       current_mode_index >= 0 && current_mode_index < 4) {
     positionArray[current_band_index + 1][current_mode_index] = position;
     
+    // Always save current state for startup restoration (not just when autosave is on)
+    save_single_position(current_band_index, current_mode_index, position);
+    
+    // If autosave is on, also save the full position array
     if (autosave_on) {
-      // Only save the specific position that changed
-      save_single_position(current_band_index, current_mode_index, position);
+      save_positions_to_file();
     }
   }
 }
@@ -490,10 +508,8 @@ static void change_band_mode(int band_index, int mode_index) {
                   bandButtons[current_band_index].label, 
                   modeButtons[current_mode_index].label);
     
-    // Save to preferences if autosave is on
-    if (autosave_on) {
-      save_single_position(current_band_index, current_mode_index, current_stepper_position);
-    }
+    // Always save position for startup restoration (not just when autosave is on)
+    save_single_position(current_band_index, current_mode_index, current_stepper_position);
   }
   
   // Update indices to new band/mode
@@ -519,15 +535,18 @@ static void change_band_mode(int band_index, int mode_index) {
     positionArray[0][3] = stored_position;
     update_position_display(stored_position);
     
+    // Always save the state change for startup restoration (regardless of autosave setting)
+    preferences.begin(PREFS_NAMESPACE, false);
+    preferences.putInt("pos_0_0", band_index);  // last_band
+    preferences.putInt("pos_0_1", mode_index);  // last_mode
+    preferences.putInt("pos_0_2", autosave_on ? 1 : 0);  // autosave
+    preferences.putInt("pos_0_3", stored_position);  // current_position
+    preferences.end();
+    Serial.println("Band/Mode state saved to preferences for startup restoration");
+    
+    // If autosave is on, also save the full position array
     if (autosave_on) {
-      // Save the state change (current band/mode)
-      preferences.begin(PREFS_NAMESPACE, false);
-      preferences.putInt("pos_0_0", band_index);  // last_band
-      preferences.putInt("pos_0_1", mode_index);  // last_mode
-      preferences.putInt("pos_0_2", autosave_on ? 1 : 0);  // autosave
-      preferences.putInt("pos_0_3", stored_position);  // current_position
-      preferences.end();
-      Serial.println("Band/Mode state saved to preferences");
+      save_positions_to_file();
     }
   }
 }

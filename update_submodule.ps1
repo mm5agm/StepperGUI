@@ -20,3 +20,7 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 Write-Host "Done!" -ForegroundColor Green
+
+# Keep the window open so you can see the results
+Write-Host "Press any key to close..." -ForegroundColor Gray
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
