@@ -11,6 +11,7 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <esp_task_wdt.h>
 #include "Arial_Arrows_14.h"
 #include "stepper_commands.h"
 #include "stepper_helpers.h"
@@ -45,6 +46,15 @@ static bool position_update_pending = false;
 static int32_t pending_position = 0;
 static int8_t last_rssi = -100;
 static bool signal_update_pending = false;
+
+// Message box deferred update system with scrolling history
+static bool tx_message_update_pending = false;
+static bool rx_message_update_pending = false;
+#define MAX_MESSAGES 4
+static char tx_messages[MAX_MESSAGES][60];
+static char rx_messages[MAX_MESSAGES][60];
+static int tx_message_count = 0;
+static int rx_message_count = 0;
 static uint32_t last_esp_now_msg_time = 0;
 static int consecutive_msgs = 0;
 static uint32_t last_signal_update = 0;
@@ -62,6 +72,10 @@ static bool up_limit_ok = true;    // Default to OK (green)
 static bool down_limit_ok = true;  // Default to OK (green)
 static lv_obj_t *up_limit_indicator = NULL;
 static lv_obj_t *down_limit_indicator = NULL;
+static lv_obj_t *tx_message_box = NULL;
+static lv_obj_t *rx_message_box = NULL;
+static bool prev_up_limit_ok = true;
+static bool prev_down_limit_ok = true;
 
 // Forward declarations for position storage functions
 static void initialize_position_array();
@@ -74,6 +88,9 @@ static void update_position_display(int32_t position);
 static void update_signal_display(int8_t rssi);
 static void evaluate_signal_strength();
 static void update_limit_indicators();
+static void create_message_boxes();
+static void add_tx_message(const char* message);
+static void add_rx_message(const char* message);
 
 // ===== Display Pins (defined in platformio.ini) =====
 // DISP_CS, DISP_SCK, DISP_D0, DISP_D1, DISP_D2, DISP_D3, GFX_BL
@@ -97,9 +114,15 @@ static bool send_message_to_controller(CommandType cmd, int32_t param = STEPPER_
   msg.param = param;
   esp_err_t res = esp_now_send(controllerMAC, (uint8_t*)&msg, sizeof(msg));
   if (res != ESP_OK) {
-    Serial.printf("esp_now_send failed: %d\n", (int)res);
+    Serial.printf("TX FAILED: %s (cmd=%s)\n", esp_err_to_name(res), commandToString(cmd));
     return false;
   }
+  Serial.printf("TX: %s, param=%d, id=%u\n", commandToString(cmd), (int)param, msg.messageId);
+  
+  // Add to GUI message box
+  char tx_msg[64];
+  snprintf(tx_msg, sizeof(tx_msg), "%s p=%d id=%u", commandToString(cmd), (int)param, msg.messageId);
+  add_tx_message(tx_msg);
   return true;
 }
 
@@ -132,8 +155,13 @@ void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
   Message msg;
   memcpy(&msg, data, sizeof(msg));
 
-  Serial.printf("GUI onDataRecv: cmd=%u param=%ld id=%u\n",
+  Serial.printf("RX: cmd=%u param=%ld id=%u\n",
                 (unsigned)msg.command, (long)msg.param, (unsigned)msg.messageId);
+  
+  // Add to GUI message box
+  char rx_msg[64];
+  snprintf(rx_msg, sizeof(rx_msg), "%s p=%ld id=%u", commandToString((CommandType)msg.command), (long)msg.param, (unsigned)msg.messageId);
+  add_rx_message(rx_msg);
 
   switch (msg.command) {
     case CMD_POSITION:
@@ -648,7 +676,7 @@ static void update_position_display(int32_t position) {
   if (clamped_pos > MAX_POSITION) clamped_pos = MAX_POSITION;
   
   int percentage = (int)((clamped_pos - MIN_POSITION) * 100 / (MAX_POSITION - MIN_POSITION));
-  lv_bar_set_value(g_position_bar, percentage, LV_ANIM_ON);
+  lv_slider_set_value(g_position_bar, percentage, LV_ANIM_ON);
   
     Serial.printf("Bar updated to %d%% (pos: %d)\n", percentage, (int)position);
 }
@@ -691,40 +719,53 @@ static void update_limit_indicators() {
     return;
   }
   
-  // Update Up Limit Indicator
-  if (up_limit_ok) {
-    lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
-    lv_obj_t *up_label = lv_obj_get_child(up_limit_indicator, 0);
-    if (up_label) lv_label_set_text(up_label, "UP\nOK");
-  } else {
-    lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0xFF0000), LV_PART_MAIN); // Red  
-    lv_obj_t *up_label = lv_obj_get_child(up_limit_indicator, 0);
-    if (up_label) lv_label_set_text(up_label, "UP\nTRIP");
+  // Only update if status has changed
+  bool status_changed = false;
+  
+  // Check if Up Limit status changed
+  if (up_limit_ok != prev_up_limit_ok) {
+    prev_up_limit_ok = up_limit_ok;
+    status_changed = true;
+    
+    if (up_limit_ok) {
+      lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
+      lv_obj_t *up_label = lv_obj_get_child(up_limit_indicator, 0);
+      if (up_label) lv_label_set_text(up_label, "UP\nOK");
+    } else {
+      lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0xFF0000), LV_PART_MAIN); // Red  
+      lv_obj_t *up_label = lv_obj_get_child(up_limit_indicator, 0);
+      if (up_label) lv_label_set_text(up_label, "UP\nTRIP");
+    }
+    lv_obj_invalidate(up_limit_indicator);
   }
   
-  // Update Down Limit Indicator
-  if (down_limit_ok) {
-    lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
-    lv_obj_t *down_label = lv_obj_get_child(down_limit_indicator, 0);
-    if (down_label) lv_label_set_text(down_label, "DOWN\nOK");
-  } else {
-    lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0xFF0000), LV_PART_MAIN); // Red
-    lv_obj_t *down_label = lv_obj_get_child(down_limit_indicator, 0);
-    if (down_label) lv_label_set_text(down_label, "DOWN\nTRIP");
+  // Check if Down Limit status changed
+  if (down_limit_ok != prev_down_limit_ok) {
+    prev_down_limit_ok = down_limit_ok;
+    status_changed = true;
+    
+    if (down_limit_ok) {
+      lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
+      lv_obj_t *down_label = lv_obj_get_child(down_limit_indicator, 0);
+      if (down_label) lv_label_set_text(down_label, "DOWN\nOK");
+    } else {
+      lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0xFF0000), LV_PART_MAIN); // Red
+      lv_obj_t *down_label = lv_obj_get_child(down_limit_indicator, 0);
+      if (down_label) lv_label_set_text(down_label, "DOWN\nTRIP");
+    }
+    lv_obj_invalidate(down_limit_indicator);
   }
   
-  // Force redraw
-  lv_obj_invalidate(up_limit_indicator);
-  lv_obj_invalidate(down_limit_indicator);
-  
-  Serial.printf("Limit indicators updated: UP=%s, DOWN=%s\n", 
-                up_limit_ok ? "OK" : "TRIP", down_limit_ok ? "OK" : "TRIP");
+  // Only print and update if something actually changed
+  if (status_changed) {
+    Serial.printf("Limit indicators updated: UP=%s, DOWN=%s\n", 
+                  up_limit_ok ? "OK" : "TRIP", down_limit_ok ? "OK" : "TRIP");
+  }
 }
 
 static void evaluate_signal_strength() {
   uint32_t now = millis();
   uint32_t time_since_any_msg = now - last_esp_now_msg_time;
-  uint32_t time_since_send = now - last_send_attempt;
   
   // Send periodic heartbeat for signal quality testing (every 4 seconds)
   if (now - last_heartbeat_sent >= 4000) {
@@ -1169,44 +1210,91 @@ void create_power_button() {
   lv_obj_center(p_label);
 }
 
+void create_message_boxes() {
+  Serial.println("Creating message boxes using simple labels...");
+  
+  // TX Message Box (Data sent to StepperController) - Using simple label
+  tx_message_box = lv_label_create(lv_scr_act());
+  lv_obj_set_size(tx_message_box, 250, 60);
+  lv_obj_set_pos(tx_message_box, 10, 95);  // Below the sliders
+  lv_label_set_text(tx_message_box, "TX: Ready");
+  lv_label_set_long_mode(tx_message_box, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_bg_opa(tx_message_box, LV_OPA_COVER, 0);  // Solid background
+  lv_obj_set_style_bg_color(tx_message_box, lv_color_hex(0x000080), 0);  // Dark blue
+  lv_obj_set_style_text_color(tx_message_box, lv_color_hex(0xFFFFFF), 0); // White text
+  lv_obj_set_style_border_color(tx_message_box, lv_color_hex(0x0000FF), 0); // Blue border
+  lv_obj_set_style_border_width(tx_message_box, 2, 0);
+  lv_obj_set_style_pad_all(tx_message_box, 3, 0);  // Small padding
+  
+  // RX Message Box (Data received by StepperGUI) - Below TX box
+  rx_message_box = lv_label_create(lv_scr_act());
+  lv_obj_set_size(rx_message_box, 250, 60);
+  lv_obj_set_pos(rx_message_box, 10, 160);  // Below TX box
+  lv_label_set_text(rx_message_box, "RX: Ready");
+  lv_label_set_long_mode(rx_message_box, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_bg_opa(rx_message_box, LV_OPA_COVER, 0);  // Solid background
+  lv_obj_set_style_bg_color(rx_message_box, lv_color_hex(0x008000), 0);  // Dark green
+  lv_obj_set_style_text_color(rx_message_box, lv_color_hex(0xFFFFFF), 0); // White text
+  lv_obj_set_style_border_color(rx_message_box, lv_color_hex(0x00FF00), 0); // Green border
+  lv_obj_set_style_border_width(rx_message_box, 2, 0);
+  lv_obj_set_style_pad_all(rx_message_box, 3, 0);  // Small padding
+  
+  Serial.println("Message boxes created successfully using labels");
+}
+
+static void add_tx_message(const char* message) {
+  // Store message in circular buffer for scrolling history (interrupt-safe)
+  if (message && strlen(message) < sizeof(tx_messages[0])) {
+    // Shift messages up (oldest falls off)
+    for (int i = MAX_MESSAGES - 1; i > 0; i--) {
+      strcpy(tx_messages[i], tx_messages[i-1]);
+    }
+    // Add new message at top
+    strcpy(tx_messages[0], message);
+    if (tx_message_count < MAX_MESSAGES) tx_message_count++;
+    tx_message_update_pending = true;
+  }
+}
+
+static void add_rx_message(const char* message) {
+  // Store message in circular buffer for scrolling history (interrupt-safe)
+  if (message && strlen(message) < sizeof(rx_messages[0])) {
+    // Shift messages up (oldest falls off)
+    for (int i = MAX_MESSAGES - 1; i > 0; i--) {
+      strcpy(rx_messages[i], rx_messages[i-1]);
+    }
+    // Add new message at top
+    strcpy(rx_messages[0], message);
+    if (rx_message_count < MAX_MESSAGES) rx_message_count++;
+    rx_message_update_pending = true;
+  }
+}
+
 void create_position_display() {
   Serial.println("Creating position display...");
   
-  // Create position label in center of screen (very visible location)
-  g_position_label = lv_label_create(lv_scr_act());
-  if (!g_position_label) {
-    Serial.println("Failed to create position label!");
-    return;
-  }
-  lv_label_set_text(g_position_label, "Position: 0");
-  
-  // Make text very visible with blue background and white text
-  lv_obj_set_style_text_color(g_position_label, lv_color_hex(0xFFFFFF), 0);  // White text
-  lv_obj_set_style_bg_opa(g_position_label, LV_OPA_COVER, 0);  // Solid background
-  lv_obj_set_style_bg_color(g_position_label, lv_color_hex(0x0000FF), 0);  // Blue background
-  lv_obj_set_style_pad_all(g_position_label, 5, 0);  // Add padding
-  lv_obj_set_style_radius(g_position_label, 3, 0);  // Rounded corners
-  
-  // Position in center-top area (above all other elements)
-  lv_obj_align(g_position_label, LV_ALIGN_TOP_MID, 0, 150);
-  
-  Serial.printf("Label created at center-top, text: %s\n", lv_label_get_text(g_position_label));
-  
-  // Create position bar below the label
-  g_position_bar = lv_bar_create(lv_scr_act());
+  // Create position bar (compact slider with text on it)
+  g_position_bar = lv_slider_create(lv_scr_act());
   if (!g_position_bar) {
     Serial.println("Failed to create position bar!");
     return;
   }
-  lv_obj_set_size(g_position_bar, 200, 15);
-  lv_obj_align_to(g_position_bar, g_position_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 5);
-  lv_bar_set_range(g_position_bar, 0, 100);
-  lv_bar_set_value(g_position_bar, 0, LV_ANIM_OFF);
+  lv_obj_set_size(g_position_bar, 200, 12);  // Half height of original
+  lv_obj_align(g_position_bar, LV_ALIGN_TOP_MID, 0, 50);
+  lv_slider_set_range(g_position_bar, 0, 100);
+  lv_slider_set_value(g_position_bar, 0, LV_ANIM_OFF);
   
-  // Style the bar with black background
+  // Style the slider with black background and disable knob
   lv_obj_add_style(g_position_bar, &style_position_bar, LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(g_position_bar, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(g_position_bar, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_opa(g_position_bar, LV_OPA_TRANSP, LV_PART_KNOB);  // Hide knob
+  
+  // Add text directly on the slider
+  g_position_label = lv_label_create(g_position_bar);
+  lv_label_set_text(g_position_label, "Position: 0");
+  lv_obj_set_style_text_color(g_position_label, lv_color_hex(0xFFFFFF), 0);  // White text
+  lv_obj_center(g_position_label);
   
   Serial.println("Position display created successfully");
   
@@ -1217,34 +1305,14 @@ void create_position_display() {
 void create_signal_display() {
   Serial.println("Creating signal strength display...");
   
-  // Create signal label (below position display)
-  g_signal_label = lv_label_create(lv_scr_act());
-  if (!g_signal_label) {
-    Serial.println("Failed to create signal label!");
-    return;
-  }
-  lv_label_set_text(g_signal_label, "Signal: -- dBm");
-  
-  // Make text visible with blue background and white text (same as position)
-  lv_obj_set_style_text_color(g_signal_label, lv_color_hex(0xFFFFFF), 0);  // White text
-  lv_obj_set_style_bg_opa(g_signal_label, LV_OPA_COVER, 0);  // Solid background
-  lv_obj_set_style_bg_color(g_signal_label, lv_color_hex(0x0000FF), 0);  // Blue background
-  lv_obj_set_style_pad_all(g_signal_label, 5, 0);  // Add padding
-  lv_obj_set_style_radius(g_signal_label, 3, 0);  // Rounded corners
-  
-  // Position below the position display
-  lv_obj_align(g_signal_label, LV_ALIGN_TOP_MID, 0, 200);
-  
-  Serial.printf("Signal label created, text: %s\n", lv_label_get_text(g_signal_label));
-  
-  // Create signal slider below the label
+  // Create signal slider (compact with text on it)
   g_signal_slider = lv_slider_create(lv_scr_act());
   if (!g_signal_slider) {
     Serial.println("Failed to create signal slider!");
     return;
   }
-  lv_obj_set_size(g_signal_slider, 200, 15);
-  lv_obj_align_to(g_signal_slider, g_signal_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 5);
+  lv_obj_set_size(g_signal_slider, 200, 12);  // Half height of original
+  lv_obj_align(g_signal_slider, LV_ALIGN_TOP_MID, 0, 70);
   lv_slider_set_range(g_signal_slider, 0, 100);
   lv_slider_set_value(g_signal_slider, 0, LV_ANIM_OFF);
   
@@ -1257,6 +1325,12 @@ void create_signal_display() {
   lv_obj_set_style_bg_opa(g_signal_slider, LV_OPA_TRANSP, LV_PART_KNOB);
   lv_obj_set_style_width(g_signal_slider, 0, LV_PART_KNOB);
   lv_obj_set_style_height(g_signal_slider, 0, LV_PART_KNOB);
+  
+  // Add text directly on the slider
+  g_signal_label = lv_label_create(g_signal_slider);
+  lv_label_set_text(g_signal_label, "Signal: -- dBm");
+  lv_obj_set_style_text_color(g_signal_label, lv_color_hex(0xFFFFFF), 0);  // White text
+  lv_obj_center(g_signal_label);
   
   Serial.println("Signal display created successfully");
   
@@ -1275,6 +1349,7 @@ void build_ui() {
   create_mode_radio_buttons();
   create_reset_button();
   create_power_button();
+  create_message_boxes();
 }
 
 // ===== Display & Touch Initialization =====
@@ -1397,6 +1472,34 @@ void loop() {
   // Periodic signal strength evaluation and heartbeat management (every 1 second)
   uint32_t now = millis();
   
+  // Handle deferred message box updates (safe in main loop context)
+  static uint32_t last_message_update = 0;
+  if (now - last_message_update >= 200) {  // Rate limit to 5 updates per second
+    last_message_update = now;
+    
+    if (tx_message_update_pending && tx_message_box) {
+      tx_message_update_pending = false;
+      static char tx_display[300];
+      strcpy(tx_display, "TX:\n");
+      for (int i = 0; i < tx_message_count; i++) {
+        strcat(tx_display, tx_messages[i]);
+        if (i < tx_message_count - 1) strcat(tx_display, "\n");
+      }
+      lv_label_set_text(tx_message_box, tx_display);
+    }
+    
+    if (rx_message_update_pending && rx_message_box) {
+      rx_message_update_pending = false;
+      static char rx_display[300];
+      strcpy(rx_display, "RX:\n");
+      for (int i = 0; i < rx_message_count; i++) {
+        strcat(rx_display, rx_messages[i]);
+        if (i < rx_message_count - 1) strcat(rx_display, "\n");
+      }
+      lv_label_set_text(rx_message_box, rx_display);
+    }
+  }
+  
   // Update limit switch indicators (check every loop cycle for responsiveness)
   static uint32_t last_limit_update = 0;
   if (now - last_limit_update >= 100) { // Update every 100ms
@@ -1407,6 +1510,9 @@ void loop() {
     last_signal_update = now;
     evaluate_signal_strength();
   }
+  
+  // Feed watchdog timer to prevent timeout
+  esp_task_wdt_reset();
   
   lv_tick_inc(5);
   lv_timer_handler();
