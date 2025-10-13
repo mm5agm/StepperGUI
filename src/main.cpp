@@ -18,6 +18,10 @@
 #include <Preferences.h>
 
 // ===== Configuration =====
+// Position limits with safety margin to avoid triggering limit switches
+#define MIN_STEPPER_POSITION 50    // Safe margin above down limit switch
+#define MAX_STEPPER_POSITION 1550  // Safe margin below up limit switch
+
 uint8_t controllerMAC[] = {0xEC, 0xE3, 0x34, 0xC0, 0x33, 0xC0};
 esp_now_peer_info_t peerInfo;
 static uint8_t nextMessageId = 1;
@@ -50,7 +54,7 @@ static bool signal_update_pending = false;
 // Message box deferred update system with scrolling history
 static bool tx_message_update_pending = false;
 static bool rx_message_update_pending = false;
-#define MAX_MESSAGES 4
+#define MAX_MESSAGES 7
 static char tx_messages[MAX_MESSAGES][60];
 static char rx_messages[MAX_MESSAGES][60];
 static int tx_message_count = 0;
@@ -82,6 +86,7 @@ static void initialize_position_array();
 static bool save_positions_to_file();
 static bool save_single_position(int band_index, int mode_index, int32_t position);
 static bool load_positions_from_file();
+static int32_t clamp_position(int32_t position);
 static void update_current_position(int32_t position);
 static void change_band_mode(int band_index, int mode_index);
 static void update_position_display(int32_t position);
@@ -105,6 +110,60 @@ static void add_rx_message(const char* message);
 #define MOVE_BTN_HEIGHT 30
 #define MOVE_BTN_PADDING 10
 #define MOVE_BTN_GAP_Y 8
+
+// ===== UI Position Constants =====
+// Limit Buttons
+#define DOWN_LIMIT_X 10
+#define DOWN_LIMIT_Y 10
+#define UP_LIMIT_X 81
+#define UP_LIMIT_Y 10
+#define LIMIT_BTN_WIDTH 70
+#define LIMIT_BTN_HEIGHT 28
+
+// Reset/Power Buttons
+#define RESET_BTN_X -10  // Relative to top-right
+#define RESET_BTN_Y 8
+#define POWER_BTN_X -10  // Relative to top-right  
+#define POWER_BTN_Y 40
+#define POWER_BTN_GAP -8  // Gap between power and reset buttons
+#define POWER_BTN_FALLBACK_X -64  // Fallback position if no reset button
+#define RESET_POWER_BTN_WIDTH 48
+#define RESET_POWER_BTN_HEIGHT 28
+
+// Position/Signal Displays
+#define POSITION_BAR_WIDTH 250
+#define POSITION_BAR_HEIGHT 30  // Reasonable height for visibility
+#define POSITION_BAR_X_OFFSET 10  // Fixed position from left edge
+#define POSITION_BAR_Y 50   // Move above message boxes
+#define SIGNAL_SLIDER_WIDTH 250
+#define SIGNAL_SLIDER_HEIGHT 25
+#define SIGNAL_SLIDER_X_OFFSET 10  // Fixed position from left edge
+#define SIGNAL_SLIDER_Y 85   // Right below position display
+
+// Band/Mode Buttons
+#define BAND_BTN_SPACING 10
+#define BAND_BTN_Y 355  // Position above move buttons
+#define MODE_BTN_SPACING 10
+#define MODE_BTN_Y 320  // Position above band buttons
+
+// Move Buttons
+#define MOVE_BTN_START_Y 395
+#define MOVE_BTN_SPACING_X 20
+#define MOVE_BTN_SPACING_Y 5
+#define MOVE_BTN_COLS 3
+
+// Sliders (for move buttons)
+#define SLIDER_WIDTH 5
+#define SLIDER_GAP 5
+#define SLIDER_LABEL_OFFSET_Y -2
+
+// Message Boxes
+#define MESSAGE_BOX_WIDTH 250
+#define MESSAGE_BOX_HEIGHT 110
+#define TX_MESSAGE_BOX_X 10
+#define TX_MESSAGE_BOX_Y 90
+#define RX_MESSAGE_BOX_X 10
+#define RX_MESSAGE_BOX_Y 210
 
 // ===== ESP-NOW Functions =====
 static bool send_message_to_controller(CommandType cmd, int32_t param = STEPPER_PARAM_UNUSED) {
@@ -162,13 +221,19 @@ void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
   char rx_msg[64];
   snprintf(rx_msg, sizeof(rx_msg), "%s p=%ld id=%u", commandToString((CommandType)msg.command), (long)msg.param, (unsigned)msg.messageId);
   add_rx_message(rx_msg);
+  
+  // Debug: Track position commands specifically
+  if (msg.command == CMD_POSITION) {
+    Serial.printf("*** POSITION MESSAGE: RX box shows p=%ld, setting pending_position=%ld ***\n", 
+                  (long)msg.param, (long)msg.param);
+  }
 
   switch (msg.command) {
     case CMD_POSITION:
       // Don't update UI directly in interrupt context - defer to main loop
-      pending_position = msg.param;
+      pending_position = clamp_position(msg.param);
       position_update_pending = true;
-      Serial.printf("Position received: %d (deferred)\n", (int)msg.param);
+      Serial.printf("Position received: %d -> clamped to %d (deferred)\n", (int)msg.param, (int)pending_position);
       break;
     case CMD_RESET:
       // StepperController is requesting GUI to reset
@@ -292,7 +357,6 @@ uint32_t screenWidth, screenHeight, bufSize_px;
 lv_display_t *disp;
 lv_color_t *disp_draw_buf;
 lv_obj_t *g_autosave_btn = NULL;
-lv_obj_t *g_position_bar = NULL;
 lv_obj_t *g_position_label = NULL;
 lv_obj_t *g_signal_slider = NULL;
 lv_obj_t *g_signal_label = NULL;
@@ -550,7 +614,8 @@ static bool load_positions_from_file() {
   current_band_index = positionArray[0][0];
   current_mode_index = positionArray[0][1];
   autosave_on = (positionArray[0][2] != 0);
-  current_stepper_position = positionArray[0][3];
+  current_stepper_position = clamp_position(positionArray[0][3]);
+  positionArray[0][3] = current_stepper_position;
   
   Serial.println("Positions loaded from preferences:");
   Serial.printf("  Header: band_index=%d, mode_index=%d, autosave=%d, position=%d\n", 
@@ -573,7 +638,21 @@ static bool load_positions_from_file() {
   return true;
 }
 
+// Helper function to clamp position within valid range
+static int32_t clamp_position(int32_t position) {
+  if (position < MIN_STEPPER_POSITION) {
+    Serial.printf("Position %d below minimum, clamping to %d\n", (int)position, MIN_STEPPER_POSITION);
+    return MIN_STEPPER_POSITION;
+  }
+  if (position > MAX_STEPPER_POSITION) {
+    Serial.printf("Position %d above maximum, clamping to %d\n", (int)position, MAX_STEPPER_POSITION);
+    return MAX_STEPPER_POSITION;
+  }
+  return position;
+}
+
 static void update_current_position(int32_t position) {
+  position = clamp_position(position);
   current_stepper_position = position;
   positionArray[0][3] = position;
   
@@ -628,6 +707,7 @@ static void change_band_mode(int band_index, int mode_index) {
     send_message_to_controller(CMD_MOVE_TO, stored_position);
     
     // Update current position immediately (will be confirmed when stepper responds)
+    stored_position = clamp_position(stored_position);
     current_stepper_position = stored_position;
     positionArray[0][3] = stored_position;
     update_position_display(stored_position);
@@ -651,7 +731,7 @@ static void change_band_mode(int band_index, int mode_index) {
 // ===== Position Display Functions =====
 static void update_position_display(int32_t position) {
   // Safety check - only update if UI is initialized
-  if (!g_position_label || !g_position_bar) {
+  if (!g_position_label) {
     Serial.printf("Position display not initialized yet, position: %d\n", (int)position);
     return;
   }
@@ -661,24 +741,10 @@ static void update_position_display(int32_t position) {
   lv_label_set_text(g_position_label, pos_text);
   
   // Debug: Verify text was set
-  Serial.printf("Updated label text to: %s\n", lv_label_get_text(g_position_label));
+  Serial.printf("Updated position text to: %s\n", lv_label_get_text(g_position_label));
   
   // Force label to refresh
   lv_obj_invalidate(g_position_label);
-  
-  // Assume position range from 0 to 10000 (adjust as needed)
-  const int32_t MAX_POSITION = 10000;
-  const int32_t MIN_POSITION = 0;
-  
-  // Calculate percentage (0-100)
-  int32_t clamped_pos = position;
-  if (clamped_pos < MIN_POSITION) clamped_pos = MIN_POSITION;
-  if (clamped_pos > MAX_POSITION) clamped_pos = MAX_POSITION;
-  
-  int percentage = (int)((clamped_pos - MIN_POSITION) * 100 / (MAX_POSITION - MIN_POSITION));
-  lv_slider_set_value(g_position_bar, percentage, LV_ANIM_ON);
-  
-    Serial.printf("Bar updated to %d%% (pos: %d)\n", percentage, (int)position);
 }
 
 static void update_signal_display(int8_t rssi) {
@@ -730,11 +796,11 @@ static void update_limit_indicators() {
     if (up_limit_ok) {
       lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
       lv_obj_t *up_label = lv_obj_get_child(up_limit_indicator, 0);
-      if (up_label) lv_label_set_text(up_label, "UP\nOK");
+      if (up_label) lv_label_set_text(up_label, "UP OK");
     } else {
       lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0xFF0000), LV_PART_MAIN); // Red  
       lv_obj_t *up_label = lv_obj_get_child(up_limit_indicator, 0);
-      if (up_label) lv_label_set_text(up_label, "UP\nTRIP");
+      if (up_label) lv_label_set_text(up_label, "UP TRIP");
     }
     lv_obj_invalidate(up_limit_indicator);
   }
@@ -747,11 +813,11 @@ static void update_limit_indicators() {
     if (down_limit_ok) {
       lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
       lv_obj_t *down_label = lv_obj_get_child(down_limit_indicator, 0);
-      if (down_label) lv_label_set_text(down_label, "DOWN\nOK");
+      if (down_label) lv_label_set_text(down_label, "DOWN OK");
     } else {
       lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0xFF0000), LV_PART_MAIN); // Red
       lv_obj_t *down_label = lv_obj_get_child(down_limit_indicator, 0);
-      if (down_label) lv_label_set_text(down_label, "DOWN\nTRIP");
+      if (down_label) lv_label_set_text(down_label, "DOWN TRIP");
     }
     lv_obj_invalidate(down_limit_indicator);
   }
@@ -896,6 +962,8 @@ void init_button_styles(void) {
   lv_style_init(&style_slider_track);
   lv_style_set_bg_opa(&style_slider_track, LV_OPA_COVER);
   lv_style_set_bg_color(&style_slider_track, lv_color_hex(0x000000));
+  lv_style_set_border_width(&style_slider_track, 0);
+  lv_style_set_outline_width(&style_slider_track, 0);
   lv_style_set_radius(&style_slider_track, 4);
 
   lv_style_init(&style_slider_indicator);
@@ -939,7 +1007,7 @@ void init_button_styles(void) {
   // Position bar style
   lv_style_init(&style_position_bar);
   lv_style_set_bg_opa(&style_position_bar, LV_OPA_COVER);
-  lv_style_set_bg_color(&style_position_bar, lv_color_hex(0x00FF00)); // Green
+  lv_style_set_bg_color(&style_position_bar, lv_color_hex(0x000080)); // Button blue for indicator
   lv_style_set_radius(&style_position_bar, 4);
 
   // Signal strength slider style
@@ -952,10 +1020,10 @@ void init_button_styles(void) {
 void create_move_buttons() {
   const int numMoves = sizeof(moveButtons) / sizeof(moveButtons[0]);
   const int cols = 3;
-  const int spacing_x = 20, spacing_y = 5;
+  const int spacing_x = MOVE_BTN_SPACING_X, spacing_y = MOVE_BTN_SPACING_Y;
   const int btn_w = MOVE_BTN_WIDTH, btn_h = MOVE_BTN_HEIGHT;
   const int startX = (LV_HOR_RES - (cols * btn_w + (cols - 1) * spacing_x)) / 2;
-  const int startY = 390;
+  const int startY = MOVE_BTN_START_Y;
 
   for (int i = 0; i < numMoves; i++) {
     int row = i / cols;
@@ -1005,8 +1073,8 @@ void create_sliders() {
   // Up Limit Indicator
   up_limit_indicator = lv_obj_create(lv_scr_act());
   lv_obj_remove_style_all(up_limit_indicator);
-  lv_obj_set_size(up_limit_indicator, 70, 35);
-  lv_obj_set_pos(up_limit_indicator, 10, 10);
+  lv_obj_set_size(up_limit_indicator, LIMIT_BTN_WIDTH, LIMIT_BTN_HEIGHT);
+  lv_obj_set_pos(up_limit_indicator, UP_LIMIT_X, UP_LIMIT_Y);
   lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
   lv_obj_set_style_bg_opa(up_limit_indicator, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(up_limit_indicator, 2, LV_PART_MAIN);
@@ -1014,16 +1082,17 @@ void create_sliders() {
   lv_obj_set_style_radius(up_limit_indicator, 5, LV_PART_MAIN);
   
   lv_obj_t *up_label = lv_label_create(up_limit_indicator);
-  lv_label_set_text(up_label, "UP\nOK");
+  lv_label_set_text(up_label, "UP OK");
   lv_obj_set_style_text_color(up_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_text_font(up_label, &lv_font_montserrat_10, LV_PART_MAIN);
 
   lv_obj_center(up_label);
   
   // Down Limit Indicator  
   down_limit_indicator = lv_obj_create(lv_scr_act());
   lv_obj_remove_style_all(down_limit_indicator);
-  lv_obj_set_size(down_limit_indicator, 70, 35);
-  lv_obj_set_pos(down_limit_indicator, 85, 10); // Moved 5px left for final clearance from reset/power buttons
+  lv_obj_set_size(down_limit_indicator, LIMIT_BTN_WIDTH, LIMIT_BTN_HEIGHT);
+  lv_obj_set_pos(down_limit_indicator, DOWN_LIMIT_X, DOWN_LIMIT_Y);
   lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
   lv_obj_set_style_bg_opa(down_limit_indicator, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(down_limit_indicator, 2, LV_PART_MAIN);
@@ -1031,15 +1100,15 @@ void create_sliders() {
   lv_obj_set_style_radius(down_limit_indicator, 5, LV_PART_MAIN);
   
   lv_obj_t *down_label = lv_label_create(down_limit_indicator);
-  lv_label_set_text(down_label, "DOWN\nOK");
+  lv_label_set_text(down_label, "DOWN OK");
   lv_obj_set_style_text_color(down_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_text_font(down_label, &lv_font_montserrat_10, LV_PART_MAIN);
 
   lv_obj_center(down_label);
 
   const int cols = 3;
   const int total_sliders = cols * 2;
-  const int SLIDER_WIDTH = 5;
-  const int SLIDER_GAP = 5;
+  // Note: SLIDER_WIDTH and SLIDER_GAP now defined as constants above
   int screen_w = lv_disp_get_hor_res(NULL);
   int screen_h = lv_disp_get_ver_res(NULL);
 
@@ -1069,7 +1138,7 @@ void create_sliders() {
       char init_buf[8];
       snprintf(init_buf, sizeof(init_buf), "%s %d", slider_letters[col], 50);
       lv_label_set_text(slabel, init_buf);
-      lv_obj_align_to(slabel, slider, LV_ALIGN_OUT_TOP_MID, 0, -2);
+      lv_obj_align_to(slabel, slider, LV_ALIGN_OUT_TOP_MID, 0, SLIDER_LABEL_OFFSET_Y);
 
       update_slider_label_pos(slider, slabel);
 
@@ -1111,8 +1180,8 @@ static void power_btn_cb(lv_event_t *e) {
 
 void create_reset_button() {
   lv_obj_t *autosave_btn = lv_btn_create(lv_scr_act());
-  lv_obj_set_size(autosave_btn, 48, 28);
-  lv_obj_align(autosave_btn, LV_ALIGN_TOP_RIGHT, -10, 8); // Moved 2 pixels further right
+  lv_obj_set_size(autosave_btn, RESET_POWER_BTN_WIDTH, RESET_POWER_BTN_HEIGHT);
+  lv_obj_align(autosave_btn, LV_ALIGN_TOP_RIGHT, RESET_BTN_X, RESET_BTN_Y);
   lv_obj_add_style(autosave_btn, &style_toggle_off, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_add_style(autosave_btn, &style_toggle_on, LV_PART_MAIN | LV_STATE_CHECKED);
   lv_obj_add_event_cb(autosave_btn, autosave_toggle_cb, LV_EVENT_CLICKED, NULL);
@@ -1131,10 +1200,10 @@ void create_reset_button() {
 // ===== Radio Button Creators =====
 void create_band_radio_buttons() {
   int numBands = sizeof(bandButtons) / sizeof(bandButtons[0]);
-  int spacing = 10;
+  int spacing = BAND_BTN_SPACING;
   int totalWidth = numBands * bandBtn_width + (numBands - 1) * spacing;
   int startX = (LV_HOR_RES - totalWidth) / 2;
-  int y_offset = 350; // Position just above move buttons
+  int y_offset = BAND_BTN_Y;
 
   for (int i = 0; i < numBands; i++) {
     lv_obj_t *btn = lv_btn_create(lv_scr_act());
@@ -1164,10 +1233,10 @@ void create_band_radio_buttons() {
 
 void create_mode_radio_buttons() {
   int numModes = sizeof(modeButtons) / sizeof(modeButtons[0]);
-  int spacing = 10;
+  int spacing = MODE_BTN_SPACING;
   int totalWidth = numModes * modeBtn_width + (numModes - 1) * spacing;
   int startX = (LV_HOR_RES - totalWidth) / 2;
-  int y_offset = 315; // Position between band buttons and move buttons
+  int y_offset = MODE_BTN_Y;
 
   for (int i = 0; i < numModes; i++) {
     lv_obj_t *btn = lv_btn_create(lv_scr_act());
@@ -1197,11 +1266,11 @@ void create_mode_radio_buttons() {
 
 void create_power_button() {
   lv_obj_t *power_btn = lv_btn_create(lv_scr_act());
-  lv_obj_set_size(power_btn, 48, 28);
+  lv_obj_set_size(power_btn, RESET_POWER_BTN_WIDTH, RESET_POWER_BTN_HEIGHT);
   if (g_autosave_btn) {
-    lv_obj_align_to(power_btn, g_autosave_btn, LV_ALIGN_OUT_LEFT_MID, -8, 0); // Reduced gap back to -8 for tighter spacing
+    lv_obj_align_to(power_btn, g_autosave_btn, LV_ALIGN_OUT_LEFT_MID, POWER_BTN_GAP, 0);
   } else {
-    lv_obj_align(power_btn, LV_ALIGN_TOP_RIGHT, -64, 8); // Adjusted fallback position
+    lv_obj_align(power_btn, LV_ALIGN_TOP_RIGHT, POWER_BTN_FALLBACK_X, RESET_BTN_Y);
   }
   lv_obj_add_style(power_btn, &style_toggle_on, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_add_event_cb(power_btn, power_btn_cb, LV_EVENT_CLICKED, NULL);
@@ -1215,8 +1284,8 @@ void create_message_boxes() {
   
   // TX Message Box (Data sent to StepperController) - Using simple label
   tx_message_box = lv_label_create(lv_scr_act());
-  lv_obj_set_size(tx_message_box, 250, 60);
-  lv_obj_set_pos(tx_message_box, 10, 95);  // Below the sliders
+  lv_obj_set_size(tx_message_box, MESSAGE_BOX_WIDTH, MESSAGE_BOX_HEIGHT);
+  lv_obj_set_pos(tx_message_box, TX_MESSAGE_BOX_X, TX_MESSAGE_BOX_Y);
   lv_label_set_text(tx_message_box, "TX: Ready");
   lv_label_set_long_mode(tx_message_box, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_bg_opa(tx_message_box, LV_OPA_COVER, 0);  // Solid background
@@ -1225,11 +1294,12 @@ void create_message_boxes() {
   lv_obj_set_style_border_color(tx_message_box, lv_color_hex(0x0000FF), 0); // Blue border
   lv_obj_set_style_border_width(tx_message_box, 2, 0);
   lv_obj_set_style_pad_all(tx_message_box, 3, 0);  // Small padding
+  lv_obj_set_style_text_font(tx_message_box, &lv_font_montserrat_10, 0);  // Small Montserrat font
   
   // RX Message Box (Data received by StepperGUI) - Below TX box
   rx_message_box = lv_label_create(lv_scr_act());
-  lv_obj_set_size(rx_message_box, 250, 60);
-  lv_obj_set_pos(rx_message_box, 10, 160);  // Below TX box
+  lv_obj_set_size(rx_message_box, MESSAGE_BOX_WIDTH, MESSAGE_BOX_HEIGHT);
+  lv_obj_set_pos(rx_message_box, RX_MESSAGE_BOX_X, RX_MESSAGE_BOX_Y);
   lv_label_set_text(rx_message_box, "RX: Ready");
   lv_label_set_long_mode(rx_message_box, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_bg_opa(rx_message_box, LV_OPA_COVER, 0);  // Solid background
@@ -1238,6 +1308,7 @@ void create_message_boxes() {
   lv_obj_set_style_border_color(rx_message_box, lv_color_hex(0x00FF00), 0); // Green border
   lv_obj_set_style_border_width(rx_message_box, 2, 0);
   lv_obj_set_style_pad_all(rx_message_box, 3, 0);  // Small padding
+  lv_obj_set_style_text_font(rx_message_box, &lv_font_montserrat_10, 0);  // Small Montserrat font
   
   Serial.println("Message boxes created successfully using labels");
 }
@@ -1273,28 +1344,46 @@ static void add_rx_message(const char* message) {
 void create_position_display() {
   Serial.println("Creating position display...");
   
-  // Create position bar (compact slider with text on it)
-  g_position_bar = lv_slider_create(lv_scr_act());
-  if (!g_position_bar) {
-    Serial.println("Failed to create position bar!");
+  // Create a container for proper layering
+  lv_obj_t *container = lv_obj_create(lv_scr_act());
+  lv_obj_set_size(container, POSITION_BAR_WIDTH + 10, POSITION_BAR_HEIGHT + 10);
+  lv_obj_set_pos(container, POSITION_BAR_X_OFFSET - 5, POSITION_BAR_Y - 5);
+  lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);  // Transparent container
+  lv_obj_set_style_border_width(container, 0, 0);
+  lv_obj_set_style_pad_all(container, 0, 0);
+  
+  // Create position text box inside container
+  g_position_label = lv_label_create(container);
+  if (!g_position_label) {
+    Serial.println("Failed to create position label!");
     return;
   }
-  lv_obj_set_size(g_position_bar, 200, 12);  // Half height of original
-  lv_obj_align(g_position_bar, LV_ALIGN_TOP_MID, 0, 50);
-  lv_slider_set_range(g_position_bar, 0, 100);
-  lv_slider_set_value(g_position_bar, 0, LV_ANIM_OFF);
+  Serial.printf("Position label created at %p\n", g_position_label);
   
-  // Style the slider with black background and disable knob
-  lv_obj_add_style(g_position_bar, &style_position_bar, LV_PART_INDICATOR);
-  lv_obj_set_style_bg_opa(g_position_bar, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(g_position_bar, lv_color_hex(0x000000), LV_PART_MAIN);
-  lv_obj_set_style_opa(g_position_bar, LV_OPA_TRANSP, LV_PART_KNOB);  // Hide knob
+  // Position and style the text box - make it more visible
+  lv_obj_set_size(g_position_label, POSITION_BAR_WIDTH, POSITION_BAR_HEIGHT);
+  lv_obj_center(g_position_label);  // Center in container
   
-  // Add text directly on the slider
-  g_position_label = lv_label_create(g_position_bar);
-  lv_label_set_text(g_position_label, "Position: 0");
+  // Style as a text box with blue background like other UI elements
+  lv_obj_set_style_bg_opa(g_position_label, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(g_position_label, lv_color_hex(0x1E3A8A), 0);  // Blue background
+  lv_obj_set_style_border_width(g_position_label, 2, 0);
+  lv_obj_set_style_border_color(g_position_label, lv_color_hex(0xFFFFFF), 0);  // White border
   lv_obj_set_style_text_color(g_position_label, lv_color_hex(0xFFFFFF), 0);  // White text
-  lv_obj_center(g_position_label);
+  lv_obj_set_style_text_font(g_position_label, &lv_font_montserrat_12, 0);  // Readable font
+  lv_obj_set_style_text_align(g_position_label, LV_TEXT_ALIGN_CENTER, 0);  // Center text
+  lv_obj_set_style_pad_all(g_position_label, 8, 0);  // More padding
+  lv_obj_set_style_radius(g_position_label, 4, 0);  // Rounded corners
+  
+  lv_label_set_text(g_position_label, "Position: 0");
+  Serial.printf("Position text set to: %s\n", lv_label_get_text(g_position_label));
+  Serial.printf("Position display size: %dx%d at (%d,%d)\n", 
+                POSITION_BAR_WIDTH, POSITION_BAR_HEIGHT, 
+                POSITION_BAR_X_OFFSET, POSITION_BAR_Y);
+  
+  // Force to front
+  lv_obj_move_foreground(container);
+  lv_obj_move_foreground(g_position_label);
   
   Serial.println("Position display created successfully");
   
@@ -1305,32 +1394,40 @@ void create_position_display() {
 void create_signal_display() {
   Serial.println("Creating signal strength display...");
   
-  // Create signal slider (compact with text on it)
-  g_signal_slider = lv_slider_create(lv_scr_act());
-  if (!g_signal_slider) {
-    Serial.println("Failed to create signal slider!");
+  // Create a container for signal display
+  lv_obj_t *signal_container = lv_obj_create(lv_scr_act());
+  lv_obj_set_size(signal_container, SIGNAL_SLIDER_WIDTH + 10, SIGNAL_SLIDER_HEIGHT + 10);
+  lv_obj_set_pos(signal_container, SIGNAL_SLIDER_X_OFFSET - 5, SIGNAL_SLIDER_Y - 5);
+  lv_obj_set_style_bg_opa(signal_container, LV_OPA_TRANSP, 0);  // Transparent container
+  lv_obj_set_style_border_width(signal_container, 0, 0);
+  lv_obj_set_style_pad_all(signal_container, 0, 0);
+  
+  // Create signal text box inside container
+  g_signal_label = lv_label_create(signal_container);
+  if (!g_signal_label) {
+    Serial.println("Failed to create signal label!");
     return;
   }
-  lv_obj_set_size(g_signal_slider, 200, 12);  // Half height of original
-  lv_obj_align(g_signal_slider, LV_ALIGN_TOP_MID, 0, 70);
-  lv_slider_set_range(g_signal_slider, 0, 100);
-  lv_slider_set_value(g_signal_slider, 0, LV_ANIM_OFF);
   
-  // Style the slider (same as position bar, no knob) with black background
-  lv_obj_add_style(g_signal_slider, &style_position_bar, LV_PART_INDICATOR);
-  lv_obj_set_style_bg_opa(g_signal_slider, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(g_signal_slider, lv_color_hex(0x000000), LV_PART_MAIN);
-  
-  // Hide the knob by making it transparent and small
-  lv_obj_set_style_bg_opa(g_signal_slider, LV_OPA_TRANSP, LV_PART_KNOB);
-  lv_obj_set_style_width(g_signal_slider, 0, LV_PART_KNOB);
-  lv_obj_set_style_height(g_signal_slider, 0, LV_PART_KNOB);
-  
-  // Add text directly on the slider
-  g_signal_label = lv_label_create(g_signal_slider);
-  lv_label_set_text(g_signal_label, "Signal: -- dBm");
-  lv_obj_set_style_text_color(g_signal_label, lv_color_hex(0xFFFFFF), 0);  // White text
+  lv_obj_set_size(g_signal_label, SIGNAL_SLIDER_WIDTH, SIGNAL_SLIDER_HEIGHT);
   lv_obj_center(g_signal_label);
+  
+  // Style as text box with orange background for visibility
+  lv_obj_set_style_bg_opa(g_signal_label, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(g_signal_label, lv_color_hex(0xFF8000), 0);  // Orange background
+  lv_obj_set_style_border_width(g_signal_label, 2, 0);
+  lv_obj_set_style_border_color(g_signal_label, lv_color_hex(0x000000), 0);  // Black border
+  lv_obj_set_style_text_color(g_signal_label, lv_color_hex(0x000000), 0);  // Black text
+  lv_obj_set_style_text_font(g_signal_label, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_align(g_signal_label, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_pad_all(g_signal_label, 5, 0);
+  lv_obj_set_style_radius(g_signal_label, 4, 0);
+  
+  lv_label_set_text(g_signal_label, "Signal: -- dBm");
+  
+  // Force to front
+  lv_obj_move_foreground(signal_container);
+  lv_obj_move_foreground(g_signal_label);
   
   Serial.println("Signal display created successfully");
   
@@ -1459,8 +1556,9 @@ void loop() {
   // Handle deferred position updates from ESP-NOW interrupt
   if (position_update_pending) {
     position_update_pending = false;
+    Serial.printf("*** DEFERRED UPDATE: Processing pending_position=%d ***\n", (int)pending_position);
     update_current_position(pending_position);
-    Serial.printf("Position updated to: %d\n", (int)pending_position);
+    Serial.printf("*** DEFERRED UPDATE: Position display should now show: %d ***\n", (int)pending_position);
   }
   
   // Handle deferred signal strength updates
@@ -1479,7 +1577,7 @@ void loop() {
     
     if (tx_message_update_pending && tx_message_box) {
       tx_message_update_pending = false;
-      static char tx_display[300];
+      static char tx_display[500];
       strcpy(tx_display, "TX:\n");
       for (int i = 0; i < tx_message_count; i++) {
         strcat(tx_display, tx_messages[i]);
@@ -1490,7 +1588,7 @@ void loop() {
     
     if (rx_message_update_pending && rx_message_box) {
       rx_message_update_pending = false;
-      static char rx_display[300];
+      static char rx_display[500];
       strcpy(rx_display, "RX:\n");
       for (int i = 0; i < rx_message_count; i++) {
         strcat(rx_display, rx_messages[i]);

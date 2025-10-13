@@ -1,32 +1,34 @@
-# StepperGUI - PlatformIO Project
+# StepperGUI - Advanced ESP-NOW Control System
 
-This is the fully converted StepperGUI project from Arduino to PlatformIO with complete functionality.
+ESP32-S3 based GUI for magnetic loop antenna stepper motor control with comprehensive safety features and debugging capabilities.
 
-## ✅ Successfully Converted Features
+## ✅ Current Feature Set
 
-### Hardware Support
-- **ESP32-S3 (JC4827W543C)** - 4.3" TFT display with touch
-- **QSPI Display Interface** - Fast display updates
-- **GT911 Touch Controller** - Full touch functionality working
-- **ESP-NOW Communication** - Wireless stepper motor control
+### Safety & Hardware Protection  
+- **Position Limiting System** - Automatic clamping to 50-1550 steps preventing limit switch damage
+- **Real-time Position Monitoring** - Dual display showing raw ESP-NOW vs. clamped safe positions
+- **Limit Switch Status** - Visual indicators for Up/Down limit switches
+- **Hardware Safeguards** - 50-step safety margins on both ends of travel range
 
-### Software Stack
-- **LVGL 9.3.0** - Modern GUI library (same version as original Arduino project)
-- **Arduino GFX Library 1.6.0** - Display driver support
-- **Touch_GT911** - Working touch library
-- **Arduino Framework** - Full compatibility maintained
+### Advanced User Interface
+- **Message Box Debugging** - 7-line scrolling ESP-NOW communication log
+- **Position Text Displays** - Blue position box and orange signal strength box
+- **Band/Mode Memory System** - Store positions for 6 amateur radio bands × 4 modes each
+- **Touch-Optimized Layout** - Designed for 272px portrait width with finger-friendly controls
+- **Font System** - Montserrat 8/10/12/14/16pt fonts with custom Arial arrows
 
-### GUI Components
-- **6 Movement Buttons** - Up/Down × Slow/Med/Fast with proper arrow symbols (↑ ↓)
-- **3 Control Sliders** - S, M, F parameter adjustment
-- **AutoSave Toggle** - Blue (off) / Red (on) state indication
-- **Power/Reset Button** - Red power symbol
-- **Real-time Touch Response** - Full touch screen functionality
+### Communication & Control
+- **ESP-NOW Wireless Protocol** - Reliable peer-to-peer communication with stepper controller
+- **Deferred Update System** - Interrupt-safe message handling prevents UI crashes
+- **Position Synchronization** - Debug logging tracks message flow and position updates
+- **RSSI Monitoring** - Signal strength display for communication quality assessment
+- **Command Structure** - Complete stepper command set with acknowledgments
 
-### Communication
-- **ESP-NOW Protocol** - Wireless communication to stepper controller
-- **Command Structure** - Complete stepper command set
-- **Status Feedback** - Bidirectional communication support
+### Development & Debugging
+- **Three Build Environments** - Basic, Production, and Debug configurations
+- **Comprehensive Logging** - Position clamping, ESP-NOW flow, and UI synchronization
+- **Memory Efficient** - 34.5% RAM usage, 49.8% Flash usage
+- **Professional Toolchain** - PlatformIO with ESP32-S3 debugging support
 
 ## 🏗️ Project Structure
 
@@ -94,27 +96,51 @@ uint8_t controllerMAC[] = {0xEC, 0xE3, 0x34, 0xC0, 0x33, 0xC0};
 7. **✅ Dual environment support** - Both JC4827W543C and StepperGUI work
 8. **✅ Memory optimization** - Efficient resource usage
 
-## 📝 Conversion Notes
+## � Position Limiting System
 
-- **API Updates**: All LVGL 8.x → 9.x API calls converted
-- **Library Dependencies**: Automatically managed by PlatformIO
-- **Build Configuration**: Optimized for ESP32-S3 with PSRAM
-- **Touch Calibration**: Preserved original Arduino calibration values
-- **Display Orientation**: Portrait mode (PORTRAIT_ROTATION=1)
-
-## 🔄 Version Control
-
-This project is now under Git version control with the initial working commit:
-```
-"Working StepperGUI conversion from Arduino to PlatformIO - LVGL 9.3.0 with touch support"
+### Safety Configuration
+```cpp
+#define MIN_STEPPER_POSITION 50    // Safe margin above down limit switch  
+#define MAX_STEPPER_POSITION 1550  // Safe margin below up limit switch
 ```
 
-## 🎮 Usage
+### Position Flow & Synchronization
+1. **ESP-NOW Reception**: StepperController sends position (may be out of range, e.g., 9079)
+2. **RX Message Display**: Raw position shown immediately in message box
+3. **Position Clamping**: `clamp_position()` constrains to safe 50-1550 range  
+4. **Position Display**: Clamped value (e.g., 1550) shown in blue text box
+5. **Hardware Protection**: Only safe positions sent to stepper motor
 
-Your StepperGUI is now fully functional in PlatformIO! The interface provides:
-- Touch-responsive movement controls
-- Real-time parameter adjustment via sliders  
-- Wireless stepper motor communication
-- Professional build and development environment
+### Debug Output Example
+```
+*** POSITION MESSAGE: RX box shows p=9079, setting pending_position=1550 ***
+Position 9079 above maximum, clamping to 1550
+*** DEFERRED UPDATE: Processing pending_position=1550 ***
+Position received: 9079 -> clamped to 1550 (deferred)
+```
 
-Enjoy your upgraded development experience! 🚀
+## 🛠️ Recent Major Updates
+
+### Safety Implementation (Current)
+- **Position clamping system** prevents limit switch damage
+- **Dual position displays** show raw vs. safe values for debugging
+- **Enhanced logging** tracks position flow and synchronization issues
+- **Hardware protection** with 50-step safety margins
+
+### UI Modernization  
+- **Message box expansion** from 3 to 7 lines for better ESP-NOW debugging
+- **Slider-to-textbox conversion** replaced confusing position sliders with clear text displays
+- **Container-based layering** fixed LVGL visibility issues
+- **Color-coded displays** blue for position, orange for signal strength
+
+### Technical Improvements
+- **LVGL 9.3.0 upgrade** with comprehensive Montserrat font support
+- **Interrupt-safe updates** deferred ESP-NOW processing prevents crashes  
+- **Memory optimization** efficient resource usage with debug capabilities
+- **Build system enhancement** three specialized environments for different use cases
+
+## 🎯 Current Status
+
+This StepperGUI represents a mature, safety-focused control system for amateur radio magnetic loop antennas. The position limiting system prevents hardware damage while maintaining full debugging visibility. The interface provides both immediate ESP-NOW message feedback and processed safe position displays.
+
+Perfect for ham radio operators who need reliable, safe stepper motor control with professional debugging capabilities! 📻�

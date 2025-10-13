@@ -1,4 +1,6 @@
-#pragma once
+#ifndef LV_CONF_H
+#define LV_CONF_H
+#define LV_CONF_SUPPRESS_DEFINE_CHECK
 
 /* LVGL Configuration for ESP32-S3 with 4MB Flash and PSRAM - LVGL v9.x */
 
@@ -20,6 +22,22 @@
 #define LV_TXT_ENC LV_TXT_ENC_UTF8
 #define LV_USE_BIDI 0
 #define LV_USE_ARABIC_PERSIAN_CHARS 0
+
+/* Font settings - Enable multiple Montserrat sizes */
+#define LV_FONT_MONTSERRAT_8  1
+#define LV_FONT_MONTSERRAT_10 1
+#define LV_FONT_MONTSERRAT_12 1
+#define LV_FONT_MONTSERRAT_14 1
+#define LV_FONT_MONTSERRAT_16 1
+#define LV_FONT_MONTSERRAT_18 0
+#define LV_FONT_MONTSERRAT_20 0
+#define LV_FONT_MONTSERRAT_22 0
+#define LV_FONT_MONTSERRAT_24 0
+#define LV_FONT_MONTSERRAT_26 0
+#define LV_FONT_MONTSERRAT_28 0
+
+/* Default font */
+#define LV_FONT_DEFAULT &lv_font_montserrat_14
 
 /* Widgets */
 #define LV_USE_ARC 1
@@ -86,3 +104,5 @@
 
 /* HAL settings */
 #define LV_TICK_CUSTOM 1
+
+#endif /* LV_CONF_H */

@@ -22,6 +22,10 @@
 #define ARIAL_ARROWS_14 1
 #endif
 
+/* Suppress missing field initializer warnings for this font file */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+
 #if ARIAL_ARROWS_14
 
 /*-----------------
@@ -95,6 +99,9 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
     .bpp = 4,
     .kern_classes = 0,
     .bitmap_format = 0,
+#if LVGL_VERSION_MAJOR >= 9
+    .stride = 0,
+#endif
 #if LVGL_VERSION_MAJOR == 8
     .cache = &cache
 #endif
@@ -127,5 +134,7 @@ lv_font_t Arial_Arrows_14 = {
 #endif
     .user_data = NULL,
 };
+
+#pragma GCC diagnostic pop
 
 #endif /*#if ARIAL_ARROWS_14*/
