@@ -21,6 +21,7 @@ ESP32-S3 based GUI for controlling stepper motor systems using ESP-NOW wireless 
 - **Touch-optimized Interface**: Designed for 272px portrait width with finger-friendly controls
 - **Message Box Debugging**: 7-line scrolling display for ESP-NOW communication monitoring
 - **Position Text Boxes**: Clear blue/orange displays for position and signal strength
+- **Signal Disconnection Indicator**: Signal box turns red and displays a white "Disconnected" message if communication is lost for 4 seconds
 - **Limit Switch Indicators**: Visual feedback for Up/Down limit switch states
 
 ### Communication & Debugging

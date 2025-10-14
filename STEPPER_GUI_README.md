@@ -12,7 +12,8 @@ ESP32-S3 based GUI for magnetic loop antenna stepper motor control with comprehe
 
 ### Advanced User Interface
 - **Message Box Debugging** - 7-line scrolling ESP-NOW communication log
-- **Position Text Displays** - Blue position box and orange signal strength box
+-- **Position Text Displays** - Blue position box and orange signal strength box
+-- **Signal Disconnection Indicator** - Signal box turns red and displays a white "Disconnected" message if communication is lost for 4 seconds
 - **Band/Mode Memory System** - Store positions for 6 amateur radio bands × 4 modes each
 - **Touch-Optimized Layout** - Designed for 272px portrait width with finger-friendly controls
 - **Font System** - Montserrat 8/10/12/14/16pt fonts with custom Arial arrows
