@@ -102,6 +102,21 @@ Touch calibration and display pins are configured for JC4827W543C hardware.
 - Optimized UI layout for 272px portrait orientation
 - Fixed LVGL font configuration issues
 
+
+## Batch Scripts for Syncing Code
+
+Two batch files are provided to help you keep your StepperGUI and MagLoop_Common_Files repositories up to date:
+
+- **download_latest_code.bat**: Pulls the latest code from both StepperGUI and MagLoop_Common_Files.
+- **upload_code_if_changed.bat**: Checks for changes in both repositories and pushes updates only if changes are detected.
+
+### Usage
+
+1. Double-click or run `download_latest_code.bat` to update your local code from GitHub.
+2. Double-click or run `upload_code_if_changed.bat` to push any local changes to GitHub. If there are no changes, the script will warn and do nothing.
+
+These scripts automate the most common sync operations for development.
+
 ## development environment
 * Visual Code 1.103.2
 * PlatformIO 6.1.18

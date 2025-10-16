@@ -1,0 +1,38 @@
+@echo off
+REM Upload changes to GitHub for StepperGUI and MagLoop_Common_Files
+
+REM Check for changes in main project (StepperGUI)
+git status --porcelain > temp_status.txt
+findstr /r /c:"^.." temp_status.txt >nul
+if %errorlevel%==0 (
+    echo Changes detected in StepperGUI. Pushing to GitHub...
+    git add .
+    git commit -m "Update StepperGUI and submodule"
+    git push origin master
+) else (
+    echo No changes to push in StepperGUI.
+)
+del temp_status.txt
+
+REM Change to submodule directory
+cd MagLoop_Common_Files
+
+REM Check for changes in submodule (MagLoop_Common_Files)
+git status --porcelain > temp_status.txt
+findstr /r /c:"^.." temp_status.txt >nul
+if %errorlevel%==0 (
+    echo Changes detected in MagLoop_Common_Files. Pushing to GitHub...
+    git add .
+    git commit -m "Update MagLoop_Common_Files"
+    git push origin main
+) else (
+    echo No changes to push in MagLoop_Common_Files.
+)
+del temp_status.txt
+
+REM Return to main project directory
+cd ..
+
+echo.
+echo Upload script complete.
+pause

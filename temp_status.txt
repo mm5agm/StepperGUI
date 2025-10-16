@@ -1,0 +1,16 @@
+ M MagLoop_Common_Files
+ M README.md
+ D "Update Submodule.lnk"
+ D create_push_shortcut.ps1
+ D create_shortcut.ps1
+ D main_bam_game_backup.cpp
+ D push_submodule_changes.bat
+ D push_submodule_changes.ps1
+ M src/main.cpp
+ D update-common.sh
+ D update_submodule.bat
+ D update_submodule.ps1
+ D update_submodule.sh
+?? download_latest_code.bat
+?? temp_status.txt
+?? upload_code_if_changed.bat

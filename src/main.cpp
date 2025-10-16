@@ -837,7 +837,7 @@ static void update_signal_display(int8_t rssi) {
     }
 
     if (signal_forced_offline) {
-        lv_label_set_text(g_signal_label, "Disconnected"); // Show message
+    lv_label_set_text(g_signal_label, LV_SYMBOL_WIFI "  Disconnected"); // Show message with icon
         lv_obj_set_style_bg_color(g_signal_label, lv_color_hex(0xFF0000), 0); // Red background
         lv_obj_set_style_text_color(g_signal_label, lv_color_hex(0xFFFFFF), 0); // White text
     } else if (rssi <= -100) {
@@ -1018,22 +1018,6 @@ static void evaluate_signal_strength() {
 }
 
 // ===== Slider Helper Functions ===
-static void update_slider_label_pos(lv_obj_t* slider, lv_obj_t* label) {
-    if (!slider || !label)
-        return;
-    const int KNOB_SIZE = 14;
-    int value = lv_slider_get_value(slider);
-    int sy = lv_obj_get_y(slider);
-    int sh = lv_obj_get_height(slider);
-
-    int knob_center_y =
-        sy + ((100 - value) * (sh - KNOB_SIZE) / 100) + (KNOB_SIZE / 2);
-    int slider_center_y = sy + (sh / 2);
-    int offset_y = knob_center_y - slider_center_y;
-
-    lv_obj_align_to(label, slider, LV_ALIGN_CENTER, 0, offset_y);
-}
-
 static void slider_event_cb(lv_event_t* e) {
     lv_obj_t* slider = (lv_obj_t*)lv_event_get_target(e);
     SliderInfo* info = (SliderInfo*)lv_event_get_user_data(e);
@@ -1044,7 +1028,7 @@ static void slider_event_cb(lv_event_t* e) {
     lv_label_set_text(info->label, buf);
     Serial.printf("%s slider value: %d\n", info->letter, value);
 
-    update_slider_label_pos(slider, info->label);
+
 }
 
 // ===== Style Objects =====
@@ -1202,97 +1186,99 @@ void create_move_buttons() {
     }
 }
 
-void create_sliders() {
-    // Create limit switch indicators
-
-    // Up Limit Indicator
+void create_limit_indicators() {
+    // Up Limit Indicator at fixed position
     up_limit_indicator = lv_obj_create(lv_scr_act());
     lv_obj_remove_style_all(up_limit_indicator);
     lv_obj_set_size(up_limit_indicator, LIMIT_BTN_WIDTH, LIMIT_BTN_HEIGHT);
     lv_obj_set_pos(up_limit_indicator, UP_LIMIT_X, UP_LIMIT_Y);
-    lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0x00AA00),
-                              LV_PART_MAIN); // Green
+    lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
     lv_obj_set_style_bg_opa(up_limit_indicator, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(up_limit_indicator, 2, LV_PART_MAIN);
-    lv_obj_set_style_border_color(up_limit_indicator, lv_color_hex(0x555555),
-                                  LV_PART_MAIN);
+    lv_obj_set_style_border_color(up_limit_indicator, lv_color_hex(0x555555), LV_PART_MAIN);
     lv_obj_set_style_radius(up_limit_indicator, 5, LV_PART_MAIN);
+    lv_obj_clear_flag(up_limit_indicator, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t* up_label = lv_label_create(up_limit_indicator);
     lv_label_set_text(up_label, "UP OK");
     lv_obj_set_style_text_color(up_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_text_font(up_label, &lv_font_montserrat_10, LV_PART_MAIN);
-
     lv_obj_center(up_label);
 
-    // Down Limit Indicator
+    // Down Limit Indicator at fixed position
     down_limit_indicator = lv_obj_create(lv_scr_act());
     lv_obj_remove_style_all(down_limit_indicator);
     lv_obj_set_size(down_limit_indicator, LIMIT_BTN_WIDTH, LIMIT_BTN_HEIGHT);
     lv_obj_set_pos(down_limit_indicator, DOWN_LIMIT_X, DOWN_LIMIT_Y);
-    lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0x00AA00),
-                              LV_PART_MAIN); // Green
+    lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
     lv_obj_set_style_bg_opa(down_limit_indicator, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(down_limit_indicator, 2, LV_PART_MAIN);
-    lv_obj_set_style_border_color(down_limit_indicator, lv_color_hex(0x555555),
-                                  LV_PART_MAIN);
+    lv_obj_set_style_border_color(down_limit_indicator, lv_color_hex(0x555555), LV_PART_MAIN);
     lv_obj_set_style_radius(down_limit_indicator, 5, LV_PART_MAIN);
+    lv_obj_clear_flag(down_limit_indicator, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t* down_label = lv_label_create(down_limit_indicator);
     lv_label_set_text(down_label, "DOWN OK");
-    lv_obj_set_style_text_color(down_label, lv_color_hex(0xFFFFFF),
-                                LV_PART_MAIN);
-    lv_obj_set_style_text_font(down_label, &lv_font_montserrat_10,
-                               LV_PART_MAIN);
-
+    lv_obj_set_style_text_color(down_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(down_label, &lv_font_montserrat_10, LV_PART_MAIN);
     lv_obj_center(down_label);
+}
 
-    const int cols = 3;
-    const int total_sliders = cols * 2;
-    // Note: SLIDER_WIDTH and SLIDER_GAP now defined as constants above
+void create_sliders() {
+    Serial.printf("[DEBUG] Slider %d created at %p\n", i, slider);
+    Serial.printf("[DEBUG] Label %d created at %p, text: '%s'\n", i, label, buf);
+    // Create a horizontal flex container for S/M/F sliders
+    int num_sliders = 3;
+    int slider_w = 180; // 3x wider than before
+    int slider_h = 8;
+    int label_h = 16;
+    int slider_spacing = 18; // Space between sliders (slider+label)
     int screen_w = lv_disp_get_hor_res(NULL);
+    int slider_x = (screen_w - slider_w) / 2;
+    // Place sliders below RX message box, above band/mode buttons
+    int rx_box_bottom = RX_MESSAGE_BOX_Y + MESSAGE_BOX_HEIGHT + 10;
+    int base_y = rx_box_bottom; // Move 5px up compared to previous (subtract 5)
+    base_y -= 5;
+    for (int i = 0; i < num_sliders; i++) {
+        int y = base_y + i * (slider_h + label_h + slider_spacing);
+        // Create a container for slider + label
+        lv_obj_t* cont = lv_obj_create(lv_scr_act());
+        lv_obj_set_size(cont, slider_w, slider_h + label_h + 4);
+        lv_obj_set_pos(cont, slider_x, y);
+        lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(cont, 0, 0);
+        lv_obj_move_foreground(cont);
 
-    int usable_w = screen_w - SLIDER_WIDTH - SLIDER_GAP;
-    int spacing_x = (usable_w - (cols * MOVE_BTN_WIDTH)) / (cols + 1);
-    int x_offset = 5;
-    // Move sliders 5 pixels below the RX message box
-    int top_row_y = RX_MESSAGE_BOX_Y + MESSAGE_BOX_HEIGHT + 5;
+        // Slider inside container
+        lv_obj_t* slider = lv_slider_create(cont);
+        lv_obj_set_size(slider, slider_w, slider_h);
+        lv_obj_set_pos(slider, 0, 0);
+        lv_obj_add_style(slider, &style_slider_track, LV_PART_MAIN);
+        lv_obj_add_style(slider, &style_slider_indicator, LV_PART_INDICATOR);
+        lv_obj_add_style(slider, &style_slider_knob, LV_PART_KNOB);
+        lv_slider_set_range(slider, 0, 100);
+        lv_slider_set_value(slider, 50, LV_ANIM_OFF);
 
-    for (int i = 0; i < total_sliders; i++) {
-        int row = (i < cols) ? 0 : 1;
-        int col = i % cols;
-        int btn_x = SLIDER_WIDTH + SLIDER_GAP + spacing_x +
-                    col * (MOVE_BTN_WIDTH + spacing_x) - x_offset;
+        // Label inside container, below slider
+        lv_obj_t* label = lv_label_create(cont);
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%s %d", slider_letters[i], 50);
+        lv_label_set_text(label, buf);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_10, LV_PART_MAIN);
+        lv_obj_set_size(label, slider_w, label_h);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_set_pos(label, 0, slider_h + 2);
+        lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(label);
 
-        if (row == 0) {
-            lv_obj_t* slider = lv_slider_create(lv_scr_act());
-            lv_obj_set_size(slider, SLIDER_WIDTH,
-                            MOVE_BTN_HEIGHT * 2 + MOVE_BTN_GAP_Y);
-            lv_obj_set_pos(slider, btn_x - SLIDER_WIDTH - SLIDER_GAP,
-                           top_row_y);
-            lv_slider_set_range(slider, 0, 100);
-            lv_slider_set_value(slider, 50, LV_ANIM_OFF);
+        Serial.printf("[DEBUG] Slider %d created at %p\n", i, slider);
+        Serial.printf("[DEBUG] Label %d created at %p, text: '%s'\n", i, label, buf);
 
-            lv_obj_add_style(slider, &style_slider_track, LV_PART_MAIN);
-            lv_obj_add_style(slider, &style_slider_indicator,
-                             LV_PART_INDICATOR);
-            lv_obj_add_style(slider, &style_slider_knob, LV_PART_KNOB);
-
-            lv_obj_t* slabel = lv_label_create(lv_scr_act());
-            char init_buf[8];
-            snprintf(init_buf, sizeof(init_buf), "%s %d", slider_letters[col],
-                     50);
-            lv_label_set_text(slabel, init_buf);
-            lv_obj_align_to(slabel, slider, LV_ALIGN_OUT_TOP_MID, 0,
-                            SLIDER_LABEL_OFFSET_Y);
-
-            update_slider_label_pos(slider, slabel);
-
-            sliderInfos[col].letter = slider_letters[col];
-            sliderInfos[col].label = slabel;
-            lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED,
-                                &sliderInfos[col]);
-        }
+        sliderInfos[i].letter = slider_letters[i];
+        sliderInfos[i].label = label;
+        lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, &sliderInfos[i]);
     }
 }
 
@@ -1654,6 +1640,8 @@ void build_ui() {
     create_reset_button();
     create_power_button();
     create_message_boxes();
+    create_limit_indicators();
+
 }
 
 // ===== Display & Touch Initialization =====
