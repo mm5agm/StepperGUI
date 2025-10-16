@@ -1,0 +1,23 @@
+// Full backup of main.cpp as of 2025-10-16
+// To restore, copy this file over src/main.cpp
+
+#include <stdint.h>
+#include "Arial_Arrows_14.h"
+#include "Touch_GT911.h"
+#include "stepper_commands.h"
+#include "stepper_helpers.h"
+#include <Arduino.h>
+#include <Arduino_GFX_Library.h>
+#include <Preferences.h>
+#include <SPI.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <esp_now.h>
+#include <esp_task_wdt.h>
+#include <esp_wifi.h>
+#include <lvgl.h>
+// Preferences API for persistent storage
+#include <Preferences.h>
+static Preferences preferences;
+
+// ...existing code...

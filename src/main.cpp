@@ -1,7 +1,5 @@
-// StepperGUI - PlatformIO Version
-// Converted from Arduino IDE to PlatformIO
-// Target: JC4827W543C ESP32-S3 with 4.3" Display
 
+#include <stdint.h>
 #include "Arial_Arrows_14.h"
 #include "Touch_GT911.h"
 #include "stepper_commands.h"
@@ -16,55 +14,74 @@
 #include <esp_task_wdt.h>
 #include <esp_wifi.h>
 #include <lvgl.h>
+// Preferences API for persistent storage
+#include <Preferences.h>
+static Preferences preferences;
 
-// ===== Configuration =====
-// Position limits with safety margin to avoid triggering limit switches
-// TEMPORARILY DISABLED FOR DEBUGGING
-// #define MIN_STEPPER_POSITION 50    // Safe margin above down limit switch
-// #define MAX_STEPPER_POSITION 1550  // Safe margin below up limit switch
 
-// ===== Homing Configuration =====
-// Optical homing temporarily removed - using limit switches
 
-uint8_t controllerMAC[] = {0xEC, 0xE3, 0x34, 0xC0, 0x33, 0xC0};
-esp_now_peer_info_t peerInfo;
-static uint8_t nextMessageId = 1;
+// ===== Style Objects =====
+lv_style_t style_move_default;
+lv_style_t style_move_pressed;
+lv_style_t style_slider_knob;
+// Removed duplicate definition of style_slider_knob
 
-// ===== Position Storage System =====
-// Position Array Structure:
-// [0][0] = last_band, [0][1] = last_mode, [0][2] = autosave, [0][3] =
-// current_position [1][0] = 10m CW, [1][1] = 10m SSB, [1][2] = 10m FT4, [1][3]
-// = 10m FT8 [2][0] = 12m CW, [2][1] = 12m SSB, [2][2] = 12m FT4, [2][3] = 12m
-// FT8 [3][0] = 15m CW, [3][1] = 15m SSB, [3][2] = 15m FT4, [3][3] = 15m FT8
-// [4][0] = 17m CW, [4][1] = 17m SSB, [4][2] = 17m FT4, [4][3] = 17m FT8
-// [5][0] = 20m CW, [5][1] = 20m SSB, [5][2] = 20m FT4, [5][3] = 20m FT8
-// [6][0] = 30m CW, [6][1] = 30m SSB, [6][2] = 30m FT4, [6][3] = 30m FT8
+lv_style_t style_toggle_on;
+lv_style_t style_toggle_off;
+lv_style_t style_btn;
+lv_style_t style_btn_checked;
+lv_style_t style_position_bar;
+lv_style_t style_signal_slider;
+
+
+
+
+#define MOVE_BTN_SPACING_X 20
+#define MOVE_BTN_SPACING_Y 5
+#define MOVE_BTN_COLS 3
+
+#define SLIDER_WIDTH 5
+#define SLIDER_GAP 5
+#define SLIDER_LABEL_OFFSET_Y -2
+
+#define MESSAGE_BOX_WIDTH 250
+#define MESSAGE_BOX_HEIGHT 75 // Reduced from 110 for more space
+#define TX_MESSAGE_BOX_X 10
+#define TX_MESSAGE_BOX_Y (POSITION_BOX_Y + POSITION_BOX_HEIGHT + 5) // 5px below position box
+#define RX_MESSAGE_BOX_X 10
+#define RX_MESSAGE_BOX_Y (TX_MESSAGE_BOX_Y + MESSAGE_BOX_HEIGHT + 5) // 5px below TX message box
+
+// Message box deferred update system with scrolling history
+#ifndef MAX_MESSAGES
+#define MAX_MESSAGES 4 // Reduced from 7 for less clutter
+#endif
+
+#ifndef POSITION_ROWS
 #define POSITION_ROWS 7
+#endif
+#ifndef POSITION_COLS
 #define POSITION_COLS 4
+#endif
+#ifndef PREFS_NAMESPACE
 #define PREFS_NAMESPACE "magloop"
+#endif
 
+#ifndef POSITION_ROWS_DEFINED
+#define POSITION_ROWS_DEFINED
 static int32_t positionArray[POSITION_ROWS][POSITION_COLS];
 static int current_band_index = 0; // Index into bandButtons array
 static int current_mode_index = 0; // Index into modeButtons array
 static int32_t current_stepper_position = 0;
 static bool position_system_initialized = false;
 static bool autosave_on = false;
-static Preferences preferences;
 static bool position_update_pending = false;
 static int32_t pending_position = 0;
 static int8_t last_rssi = -100;
 static bool signal_update_pending = false;
-static bool signal_forced_offline =
-    false; // Restore declaration of signal_forced_offline global variable for
-           // RSSI logic
-
-// ===== Homing System Variables =====
-// Optical homing variables removed - using limit switches
-
-// Message box deferred update system with scrolling history
+static bool signal_forced_offline = false; // For RSSI logic
+#endif
 static bool tx_message_update_pending = false;
 static bool rx_message_update_pending = false;
-#define MAX_MESSAGES 4 // Reduced from 7 for less clutter
 static char tx_messages[MAX_MESSAGES][60];
 static char rx_messages[MAX_MESSAGES][60];
 static int tx_message_count = 0;
@@ -72,13 +89,11 @@ static int rx_message_count = 0;
 static uint32_t last_esp_now_msg_time = 0;
 static int consecutive_msgs = 0;
 static uint32_t last_signal_update = 0;
-static uint32_t last_heartbeat_sent = 0;
 static uint32_t last_heartbeat_received = 0;
 static int heartbeat_success_count = 0;
 static int heartbeat_total_count = 0;
 static int recent_message_failures = 0;
 static uint32_t last_send_attempt = 0;
-static int8_t smoothed_rssi = -35;
 static int stable_failure_count = 0;
 
 // ===== Limit Switch Status Variables =====
@@ -98,27 +113,50 @@ static lv_obj_t* g_signal_label = NULL;
 // Forward declarations for position storage functions
 static void initialize_position_array();
 static bool save_positions_to_file();
-static bool save_single_position(int band_index, int mode_index,
-                                 int32_t position);
+static bool save_single_position(int band_index, int mode_index, int32_t position);
 static bool load_positions_from_file();
 static int32_t clamp_position(int32_t position);
 static void update_current_position(int32_t position);
 static void change_band_mode(int band_index, int mode_index);
 static void update_position_display(int32_t position);
 static void update_signal_display(int8_t rssi);
-static void evaluate_signal_strength();
+//static void evaluate_signal_strength();
 static void update_limit_indicators();
 static void create_message_boxes();
 static void add_tx_message(const char* message);
 static void add_rx_message(const char* message);
 
-// ===== Display Pins (defined in platformio.ini) =====
-// DISP_CS, DISP_SCK, DISP_D0, DISP_D1, DISP_D2, DISP_D3, GFX_BL
+// Forward declarations for all helper functions used before their definition
+static void add_rx_message(const char* message);
+static int32_t clamp_position(int32_t position);
+static void change_band_mode(int band_index, int mode_index);
+static void update_position_display(int32_t position);
+static void update_signal_display(int8_t rssi);
+static void update_limit_indicators();
+void create_speed_delay_controls();
+void init_button_styles(void);
+void create_move_buttons();
+void band_radio_button_event_cb(lv_event_t* e);
+void mode_button_event_cb(lv_event_t* e);
+void onDataRecv(const uint8_t* mac, const uint8_t* data, int len);
+void onDataSent(const uint8_t* mac, esp_now_send_status_t status);
+void send_message(CommandType cmd, int param, int messageId);
 
-// ===== Touch Config (defined in platformio.ini) =====
-// TOUCH_WIDTH, TOUCH_HEIGHT, TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RES
+// Forward declarations for message box update functions
+static void add_tx_message(const char* message);
+static void add_rx_message(const char* message);
+static void speed_dec_btn_event_cb(lv_event_t* e);
+static void speed_inc_btn_event_cb(lv_event_t* e);
+// ESP-NOW and preferences globals
+uint8_t controllerMAC[] = {0xEC, 0xE3, 0x34, 0xC0, 0x33, 0xC0};
+static esp_now_peer_info_t peerInfo;
+// Function definitions (move any misplaced ones here)
+// Stepper speed pulse delay variables (single definition at file scope)
+static int32_t slow_speed_pulse_delay = 1000;
+static int32_t medium_speed_pulse_delay = 500;
+static int32_t fast_speed_pulse_delay = 200;
+static int32_t move_to_pulse_delay = 800;
 
-// ===== Move Button UI Config =====
 #define MOVE_BTN_COLOR_RELEASED 0x0000FF
 #define MOVE_BTN_COLOR_PRESSED 0xFF0000
 #define MOVE_BTN_WIDTH 60
@@ -126,8 +164,6 @@ static void add_rx_message(const char* message);
 #define MOVE_BTN_PADDING 10
 #define MOVE_BTN_GAP_Y 8
 
-// ===== UI Position Constants =====
-// Limit Buttons
 #define DOWN_LIMIT_X 10
 #define DOWN_LIMIT_Y 8
 #define UP_LIMIT_X 81
@@ -135,7 +171,6 @@ static void add_rx_message(const char* message);
 #define LIMIT_BTN_WIDTH 70
 #define LIMIT_BTN_HEIGHT 28
 
-// Reset/Power Buttons
 #define RESET_BTN_X -10 // Relative to top-right
 #define RESET_BTN_Y 8
 #define POWER_BTN_X -10 // Relative to top-right
@@ -145,7 +180,6 @@ static void add_rx_message(const char* message);
 #define RESET_POWER_BTN_WIDTH 48
 #define RESET_POWER_BTN_HEIGHT 28
 
-// Position/Signal Displays
 #define POSITION_BOX_X_OFFSET 10 // Fixed position from left edge
 #define POSITION_BOX_WIDTH ((lv_disp_get_hor_res(NULL) - 2 * POSITION_BOX_X_OFFSET - 5) / 2)
 #define POSITION_BOX_HEIGHT 28 // Reasonable height for visibility
@@ -155,24 +189,20 @@ static void add_rx_message(const char* message);
 #define POSITION_BOX_Y (DOWN_LIMIT_Y + LIMIT_BTN_HEIGHT + 5) // 5px below limit buttons
 #define SIGNAL_BOX_Y (DOWN_LIMIT_Y + LIMIT_BTN_HEIGHT + 5)   // 5px below limit buttons
 
-// Band/Mode Buttons
 #define BAND_BTN_SPACING 10
 #define BAND_BTN_Y 355 // Position above move buttons
 #define MODE_BTN_SPACING 10
 #define MODE_BTN_Y 320 // Position above band buttons
 
-// Move Buttons
 #define MOVE_BTN_START_Y 395
 #define MOVE_BTN_SPACING_X 20
 #define MOVE_BTN_SPACING_Y 5
 #define MOVE_BTN_COLS 3
 
-// Sliders (for move buttons)
 #define SLIDER_WIDTH 5
 #define SLIDER_GAP 5
 #define SLIDER_LABEL_OFFSET_Y -2
 
-// Message Boxes
 #define MESSAGE_BOX_WIDTH 250
 #define MESSAGE_BOX_HEIGHT 75 // Reduced from 110 for more space
 #define TX_MESSAGE_BOX_X 10
@@ -180,29 +210,148 @@ static void add_rx_message(const char* message);
 #define RX_MESSAGE_BOX_X 10
 #define RX_MESSAGE_BOX_Y (TX_MESSAGE_BOX_Y + MESSAGE_BOX_HEIGHT + 5) // 5px below TX message box
 
+// Forward declarations for all helper functions used before their definition
+static void add_rx_message(const char* message);
+static int32_t clamp_position(int32_t position);
+static void change_band_mode(int band_index, int mode_index);
+static void update_position_display(int32_t position);
+static void update_signal_display(int8_t rssi);
+static void update_limit_indicators();
+void create_speed_delay_controls();
+void init_button_styles(void);
+void create_move_buttons();
+void band_radio_button_event_cb(lv_event_t* e);
+void mode_button_event_cb(lv_event_t* e);
+void onDataRecv(const uint8_t* mac, const uint8_t* data, int len);
+void onDataSent(const uint8_t* mac, esp_now_send_status_t status);
+void send_message(CommandType cmd, int param, int messageId);
+
+// Forward declarations for message box update functions
+static void add_tx_message(const char* message);
+static void add_rx_message(const char* message);
+static uint8_t nextMessageId = 1;
+// Function definitions (move any misplaced ones here)
+// Helper function for speed control blocks (single definition at file scope)
+static void add_speed_control(lv_obj_t* parent, const char* label, int32_t* value, int min, int max) {
+    lv_obj_t* block = lv_obj_create(parent);
+    lv_obj_set_size(block, 90, 80);
+    lv_obj_set_style_bg_color(block, lv_color_hex(0x333366), 0);
+    lv_obj_set_style_bg_opa(block, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(block, 4, 0);
+    lv_obj_set_flex_flow(block, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(block, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t* lbl = lv_label_create(block);
+    lv_label_set_text(lbl, label);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
+    lv_obj_center(lbl);
+
+    lv_obj_t* val_lbl = lv_label_create(block);
+    char val_buf[16];
+    snprintf(val_buf, sizeof(val_buf), "%d", *value);
+    lv_label_set_text(val_lbl, val_buf);
+    lv_obj_set_style_text_color(val_lbl, lv_color_hex(0xFFFF00), 0);
+    lv_obj_set_style_text_font(val_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_center(val_lbl);
+
+    // Decrement button
+    lv_obj_t* dec_btn = lv_btn_create(block);
+    lv_obj_set_size(dec_btn, 32, 28);
+    lv_obj_add_style(dec_btn, &style_move_default, 0);
+    lv_obj_t* dec_lbl = lv_label_create(dec_btn);
+    lv_label_set_text(dec_lbl, "-");
+    lv_obj_center(dec_lbl);
+    int* min_ptr = new int(min);
+    lv_obj_add_event_cb(dec_btn, speed_dec_btn_event_cb, LV_EVENT_CLICKED, min_ptr);
+    lv_obj_set_user_data(dec_btn, value);
+
+    // Increment button
+    lv_obj_t* inc_btn = lv_btn_create(block);
+    lv_obj_set_size(inc_btn, 32, 28);
+    lv_obj_add_style(inc_btn, &style_move_default, 0);
+    lv_obj_t* inc_lbl = lv_label_create(inc_btn);
+    lv_label_set_text(inc_lbl, "+");
+    lv_obj_center(inc_lbl);
+    int* max_ptr = new int(max);
+    lv_obj_add_event_cb(inc_btn, speed_inc_btn_event_cb, LV_EVENT_CLICKED, max_ptr);
+    lv_obj_set_user_data(inc_btn, value);
+}
+
+// Single definition at file scope
+void create_speed_delay_controls() {
+    // Container for speed controls
+    lv_obj_t* speed_cont = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(speed_cont, MESSAGE_BOX_WIDTH, 90);
+    lv_obj_set_pos(speed_cont, RX_MESSAGE_BOX_X, RX_MESSAGE_BOX_Y + MESSAGE_BOX_HEIGHT + 10);
+    lv_obj_set_style_bg_color(speed_cont, lv_color_hex(0x222244), 0);
+    lv_obj_set_style_bg_opa(speed_cont, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(speed_cont, 8, 0);
+    lv_obj_set_flex_flow(speed_cont, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(speed_cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    add_speed_control(speed_cont, "Slow", &slow_speed_pulse_delay, 100, 5000);
+    add_speed_control(speed_cont, "Medium", &medium_speed_pulse_delay, 50, 2000);
+    add_speed_control(speed_cont, "Fast", &fast_speed_pulse_delay, 10, 1000);
+    add_speed_control(speed_cont, "MoveTo", &move_to_pulse_delay, 50, 3000);
+}
+
+static void add_tx_message(const char* message) {
+    // Store message in circular buffer for scrolling history (interrupt-safe)
+    if (message && strlen(message) < sizeof(tx_messages[0])) {
+        // Shift messages up (oldest falls off)
+        for (int i = MAX_MESSAGES - 1; i > 0; i--) {
+            strcpy(tx_messages[i], tx_messages[i - 1]);
+        }
+        // Add new message at top
+        strcpy(tx_messages[0], message);
+        if (tx_message_count < MAX_MESSAGES)
+            tx_message_count++;
+
+        // LVGL is not interrupt-safe - must use deferred updates
+        tx_message_update_pending = true;
+    }
+}
+
+static void add_rx_message(const char* message) {
+    // Store message in circular buffer for scrolling history (interrupt-safe)
+    if (message && strlen(message) < sizeof(rx_messages[0])) {
+        // Shift messages up (oldest falls off)
+        for (int i = MAX_MESSAGES - 1; i > 0; i--) {
+            strcpy(rx_messages[i], rx_messages[i - 1]);
+        }
+        // Add new message at top
+        strcpy(rx_messages[0], message);
+        if (rx_message_count < MAX_MESSAGES)
+            rx_message_count++;
+
+        // LVGL is not interrupt-safe - must use deferred updates
+        rx_message_update_pending = true;
+    }
+}
+
 // ===== ESP-NOW Functions =====
-static bool send_message_to_controller(CommandType cmd,
-                                       int32_t param = STEPPER_PARAM_UNUSED) {
+
+// Sends a command to the controller via ESP-NOW and updates the TX message box
+static bool send_message_to_controller(CommandType cmd, int32_t param = STEPPER_PARAM_UNUSED) {
     Message msg;
     msg.messageId = nextMessageId++;
     msg.command = cmd;
     msg.param = param;
     esp_err_t res = esp_now_send(controllerMAC, (uint8_t*)&msg, sizeof(msg));
     if (res != ESP_OK) {
-        Serial.printf("TX FAILED: %s (cmd=%s)\n", esp_err_to_name(res),
-                      commandToString(cmd));
+        Serial.printf("TX FAILED: %s (cmd=%s)\n", esp_err_to_name(res), commandToString(cmd));
         return false;
     }
-    Serial.printf("TX: %s, param=%d, id=%u\n", commandToString(cmd), (int)param,
-                  msg.messageId);
+    Serial.printf("TX: %s, param=%d, id=%u\n", commandToString(cmd), (int)param, msg.messageId);
 
     // Add to GUI message box
     char tx_msg[64];
-    snprintf(tx_msg, sizeof(tx_msg), "%s p=%d id=%u", commandToString(cmd),
-             (int)param, msg.messageId);
+    snprintf(tx_msg, sizeof(tx_msg), "%s p=%d id=%u", commandToString(cmd), (int)param, msg.messageId);
     add_tx_message(tx_msg);
     return true;
 }
+
 
 void onDataRecv(const uint8_t* mac, const uint8_t* data, int len) {
     if (mac) {
@@ -387,16 +536,6 @@ uint32_t screenWidth, screenHeight, bufSize_px;
 lv_display_t* disp;
 lv_color_t* disp_draw_buf;
 lv_obj_t* g_autosave_btn = NULL;
-// g_position_label, g_signal_slider, g_signal_label moved earlier for ESP-NOW
-// access
-
-// ===== Slider User Data =====
-static const char* slider_letters[] = {"S", "M", "F"};
-typedef struct {
-    const char* letter;
-    lv_obj_t* label;
-} SliderInfo;
-static SliderInfo sliderInfos[3];
 
 // ===== LVGL Callbacks =====
 
@@ -658,6 +797,12 @@ static bool load_positions_from_file() {
         }
     }
 
+    // Load stepper speed pulse delay variables from preferences
+    slow_speed_pulse_delay = preferences.getInt("slow_pulse_delay", 1000);
+    medium_speed_pulse_delay = preferences.getInt("medium_pulse_delay", 500);
+    fast_speed_pulse_delay = preferences.getInt("fast_pulse_delay", 200);
+    move_to_pulse_delay = preferences.getInt("move_to_pulse_delay", 800);
+
     preferences.end();
 
     if (!found_data) {
@@ -678,6 +823,10 @@ static bool load_positions_from_file() {
         "  Header: band_index=%d, mode_index=%d, autosave=%d, position=%d\n",
         current_band_index, current_mode_index, (int)positionArray[0][2],
         (int)current_stepper_position);
+    Serial.printf(
+        "  Pulse Delays: slow=%d, medium=%d, fast=%d, move_to=%d\n",
+        (int)slow_speed_pulse_delay, (int)medium_speed_pulse_delay,
+        (int)fast_speed_pulse_delay, (int)move_to_pulse_delay);
 
     // Validate loaded indices
     if (current_band_index < 0 || current_band_index >= 6) {
@@ -923,126 +1072,30 @@ static void update_limit_indicators() {
                       down_limit_ok ? "OK" : "TRIP");
     }
 }
-
-static void evaluate_signal_strength() {
-    uint32_t now = millis();
-    uint32_t time_since_any_msg = now - last_esp_now_msg_time;
-
-    // Feed watchdog during signal processing
-    esp_task_wdt_reset();
-
-    // Send periodic heartbeat for signal quality testing (every 4 seconds)
-    if (now - last_heartbeat_sent >= 4000) {
-        last_heartbeat_sent = now;
-        heartbeat_total_count++;
-
-        // Reset counters periodically to prevent overflow
-        if (heartbeat_total_count > 50) {
-            heartbeat_success_count = heartbeat_success_count / 2;
-            heartbeat_total_count = heartbeat_total_count / 2;
-            recent_message_failures = recent_message_failures / 2;
-        }
-
-        send_message_to_controller(CMD_HEARTBEAT);
-        Serial.printf("Signal test heartbeat sent (total: %d, success: %d, "
-                      "failures: %d)\n",
-                      heartbeat_total_count, heartbeat_success_count,
-                      recent_message_failures);
-    }
-
-    // If no messages for 4 seconds, force offline
-    if (time_since_any_msg > 4000) {
-        if (!signal_forced_offline) {
-            signal_forced_offline = true;
-            signal_update_pending = true;
-            Serial.println("Signal forced offline due to inactivity");
-        }
-        return;
-    } else {
-        if (signal_forced_offline) {
-            signal_forced_offline = false;
-            signal_update_pending = true;
-            Serial.println("Signal restored after activity");
-        }
-    }
-
-    // Calculate target signal strength based on stable RF conditions
-    int8_t target_rssi;
-
-    // Use stable failure count for less bouncy signal estimation
-    if (stable_failure_count == 0 && time_since_any_msg < 10000) {
-        // Excellent conditions - no persistent failures
-        target_rssi = -35; // Stable at -35 dBm
-    } else if (stable_failure_count <= 2 && time_since_any_msg < 15000) {
-        // Good conditions - few persistent failures
-        target_rssi = -45; // Stable at -45 dBm
-    } else if (stable_failure_count <= 4 && time_since_any_msg < 25000) {
-        // Fair conditions - some persistent failures
-        target_rssi = -60; // Stable at -60 dBm
-    } else if (stable_failure_count <= 7 && time_since_any_msg < 35000) {
-        // Poor conditions - many persistent failures
-        target_rssi = -75; // Stable at -75 dBm
-    } else {
-        // Very poor or no communication
-        target_rssi = -95; // Stable at -95 dBm
-    }
-
-    // Smooth the signal toward the target (low-pass filter)
-    int8_t rssi_diff = target_rssi - smoothed_rssi;
-    if (abs(rssi_diff) > 1) {
-        // Move toward target gradually
-        smoothed_rssi += (rssi_diff > 0) ? 2 : -2;
-    } else {
-        smoothed_rssi = target_rssi;
-    }
-
-    // Add minimal random variation for realism (±1 dBm)
-    int8_t display_rssi = smoothed_rssi + random(-1, 1);
-
-    // Update display if significant change or forced update
-    static uint32_t last_forced_update = 0;
-    bool force_update = (now - last_forced_update) >= 5000;
-
-    if (abs(display_rssi - last_rssi) >= 3 || force_update) {
-        last_rssi = display_rssi;
-        signal_update_pending = true;
-        if (force_update)
-            last_forced_update = now;
-
-        Serial.printf("RF Signal: %d dBm (target: %d, stable_fails: %d, "
-                      "msg_age: %u ms)%s\n",
-                      last_rssi, target_rssi, stable_failure_count,
-                      (unsigned int)time_since_any_msg,
-                      force_update ? " [FORCED]" : "");
-    }
+// ===== Speed Pulse Delay Controls UI Event Callbacks =====
+static void speed_dec_btn_event_cb(lv_event_t* e) {
+    int32_t* value = (int32_t*)lv_event_get_user_data(e);
+    int min = *((int*)lv_event_get_param(e));
+    if (*value > min) *value -= 10;
+    lv_obj_t* parent = lv_obj_get_parent((lv_obj_t*)lv_event_get_current_target(e));
+    lv_obj_t* val_lbl = lv_obj_get_child(parent, 1);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", *value);
+    lv_label_set_text(val_lbl, buf);
 }
 
-// ===== Slider Helper Functions ===
-static void slider_event_cb(lv_event_t* e) {
-    lv_obj_t* slider = (lv_obj_t*)lv_event_get_target(e);
-    SliderInfo* info = (SliderInfo*)lv_event_get_user_data(e);
-    int value = lv_slider_get_value(slider);
-
-    char buf[8];
-    snprintf(buf, sizeof(buf), "%s %d", info->letter, value);
-    lv_label_set_text(info->label, buf);
-    Serial.printf("%s slider value: %d\n", info->letter, value);
-
-
+static void speed_inc_btn_event_cb(lv_event_t* e) {
+    int32_t* value = (int32_t*)lv_event_get_user_data(e);
+    int max = *((int*)lv_event_get_param(e));
+    if (*value < max) *value += 10;
+    lv_obj_t* parent = lv_obj_get_parent((lv_obj_t*)lv_event_get_current_target(e));
+    lv_obj_t* val_lbl = lv_obj_get_child(parent, 1);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", *value);
+    lv_label_set_text(val_lbl, buf);
 }
 
-// ===== Style Objects =====
-lv_style_t style_move_default;
-lv_style_t style_move_pressed;
-lv_style_t style_slider_track;
-lv_style_t style_slider_indicator;
-lv_style_t style_slider_knob;
-lv_style_t style_toggle_on;
-lv_style_t style_toggle_off;
-lv_style_t style_btn;
-lv_style_t style_btn_checked;
-lv_style_t style_position_bar;
-lv_style_t style_signal_slider;
+// ===== Speed Pulse Delay Controls UI =====
 
 void init_button_styles(void) {
     // Default (released) style
@@ -1064,26 +1117,6 @@ void init_button_styles(void) {
     lv_style_set_pad_all(&style_move_pressed, 4);
     lv_style_set_border_width(&style_move_pressed, 0);
     lv_style_set_text_color(&style_move_pressed, lv_color_hex(0xFFFFFF));
-
-    // Slider styles
-    lv_style_init(&style_slider_track);
-    lv_style_set_bg_opa(&style_slider_track, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_slider_track, lv_color_hex(0x000000));
-    lv_style_set_border_width(&style_slider_track, 0);
-    lv_style_set_outline_width(&style_slider_track, 0);
-    lv_style_set_radius(&style_slider_track, 4);
-
-    lv_style_init(&style_slider_indicator);
-    lv_style_set_bg_opa(&style_slider_indicator, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_slider_indicator, lv_color_hex(0xFF0000));
-    lv_style_set_radius(&style_slider_indicator, 4);
-
-    lv_style_init(&style_slider_knob);
-    lv_style_set_bg_opa(&style_slider_knob, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_slider_knob, lv_color_hex(0xFFFF00));
-    lv_style_set_radius(&style_slider_knob, 0);
-    lv_style_set_width(&style_slider_knob, 14);
-    lv_style_set_height(&style_slider_knob, 14);
 
     // Toggle styles
     lv_style_init(&style_toggle_off);
@@ -1224,63 +1257,7 @@ void create_limit_indicators() {
     lv_obj_center(down_label);
 }
 
-void create_sliders() {
-    Serial.printf("[DEBUG] Slider %d created at %p\n", i, slider);
-    Serial.printf("[DEBUG] Label %d created at %p, text: '%s'\n", i, label, buf);
-    // Create a horizontal flex container for S/M/F sliders
-    int num_sliders = 3;
-    int slider_w = 180; // 3x wider than before
-    int slider_h = 8;
-    int label_h = 16;
-    int slider_spacing = 18; // Space between sliders (slider+label)
-    int screen_w = lv_disp_get_hor_res(NULL);
-    int slider_x = (screen_w - slider_w) / 2;
-    // Place sliders below RX message box, above band/mode buttons
-    int rx_box_bottom = RX_MESSAGE_BOX_Y + MESSAGE_BOX_HEIGHT + 10;
-    int base_y = rx_box_bottom; // Move 5px up compared to previous (subtract 5)
-    base_y -= 5;
-    for (int i = 0; i < num_sliders; i++) {
-        int y = base_y + i * (slider_h + label_h + slider_spacing);
-        // Create a container for slider + label
-        lv_obj_t* cont = lv_obj_create(lv_scr_act());
-        lv_obj_set_size(cont, slider_w, slider_h + label_h + 4);
-        lv_obj_set_pos(cont, slider_x, y);
-        lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(cont, 0, 0);
-        lv_obj_move_foreground(cont);
-
-        // Slider inside container
-        lv_obj_t* slider = lv_slider_create(cont);
-        lv_obj_set_size(slider, slider_w, slider_h);
-        lv_obj_set_pos(slider, 0, 0);
-        lv_obj_add_style(slider, &style_slider_track, LV_PART_MAIN);
-        lv_obj_add_style(slider, &style_slider_indicator, LV_PART_INDICATOR);
-        lv_obj_add_style(slider, &style_slider_knob, LV_PART_KNOB);
-        lv_slider_set_range(slider, 0, 100);
-        lv_slider_set_value(slider, 50, LV_ANIM_OFF);
-
-        // Label inside container, below slider
-        lv_obj_t* label = lv_label_create(cont);
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%s %d", slider_letters[i], 50);
-        lv_label_set_text(label, buf);
-        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_10, LV_PART_MAIN);
-        lv_obj_set_size(label, slider_w, label_h);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_set_pos(label, 0, slider_h + 2);
-        lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(label);
-
-        Serial.printf("[DEBUG] Slider %d created at %p\n", i, slider);
-        Serial.printf("[DEBUG] Label %d created at %p, text: '%s'\n", i, label, buf);
-
-        sliderInfos[i].letter = slider_letters[i];
-        sliderInfos[i].label = label;
-        lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, &sliderInfos[i]);
-    }
-}
+// ...speed slider UI removed...
 
 // ===== AutoSave & Power Buttons =====
 
@@ -1490,40 +1467,6 @@ void create_message_boxes() {
     Serial.println("Message boxes created successfully using labels");
 }
 
-static void add_tx_message(const char* message) {
-    // Store message in circular buffer for scrolling history (interrupt-safe)
-    if (message && strlen(message) < sizeof(tx_messages[0])) {
-        // Shift messages up (oldest falls off)
-        for (int i = MAX_MESSAGES - 1; i > 0; i--) {
-            strcpy(tx_messages[i], tx_messages[i - 1]);
-        }
-        // Add new message at top
-        strcpy(tx_messages[0], message);
-        if (tx_message_count < MAX_MESSAGES)
-            tx_message_count++;
-
-        // LVGL is not interrupt-safe - must use deferred updates
-        tx_message_update_pending = true;
-    }
-}
-
-static void add_rx_message(const char* message) {
-    // Store message in circular buffer for scrolling history (interrupt-safe)
-    if (message && strlen(message) < sizeof(rx_messages[0])) {
-        // Shift messages up (oldest falls off)
-        for (int i = MAX_MESSAGES - 1; i > 0; i--) {
-            strcpy(rx_messages[i], rx_messages[i - 1]);
-        }
-        // Add new message at top
-        strcpy(rx_messages[0], message);
-        if (rx_message_count < MAX_MESSAGES)
-            rx_message_count++;
-
-        // LVGL is not interrupt-safe - must use deferred updates
-        rx_message_update_pending = true;
-    }
-}
-
 void create_position_display() {
     Serial.println("Creating position display...");
 
@@ -1629,21 +1572,75 @@ void create_signal_display() {
 }
 
 // ===== UI Builder =====
+void create_speed_delay_controls();
 void build_ui() {
     init_button_styles();
     create_position_display();
     create_signal_display();
     create_move_buttons();
-    create_sliders();
     create_band_radio_buttons();
     create_mode_radio_buttons();
     create_reset_button();
     create_power_button();
     create_message_boxes();
     create_limit_indicators();
+    create_speed_delay_controls();
+    // TODO: Restore correct usage for LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH, PORTRAIT_ROTATION if needed
+    // Example: Serial.printf("LVGL v%d.%d.%d, rotation=%d\n", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH, PORTRAIT_ROTATION);
 
+    // Initialize position storage system
+    Serial.println("Initializing position storage system...");
+    if (!load_positions_from_file()) {
+        Serial.println("Using default position values");
+        initialize_position_array();
+    }
+    position_system_initialized = true;
+
+    // Display startup state for debugging
+    Serial.printf("Startup state - Band: %s (index %d), Mode: %s (index %d), "
+                  "Position: %d\n",
+                  bandButtons[current_band_index].label, current_band_index,
+                  modeButtons[current_mode_index].label, current_mode_index,
+                  (int)current_stepper_position);
+
+    // display_touch_init(); // Commented out undefined function
+    Serial.println("Display and touch initialized");
+
+    Serial.println("UI built successfully");
+
+    WiFi.mode(WIFI_STA);
+    if (esp_now_init() != ESP_OK) {
+        Serial.println("ESP-NOW init failed!");
+        while (1)
+            ;
+    }
+
+    Serial.print("My MAC address is ");
+    Serial.println(WiFi.macAddress());
+
+    esp_now_register_recv_cb(onDataRecv);
+    esp_now_register_send_cb(onDataSent);
+
+    // Initialize ESP-NOW peer info structure completely
+    memset(&peerInfo, 0, sizeof(esp_now_peer_info_t));
+    memcpy(peerInfo.peer_addr, controllerMAC, 6);
+    peerInfo.channel = 0;
+    peerInfo.ifidx = WIFI_IF_STA;
+    peerInfo.encrypt = false;
+
+    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+        Serial.println("Failed to add peer");
+    }
+
+    // Move stepper to saved position on startup
+    Serial.printf("Moving to startup position: %d for %s/%s\n",
+                  (int)current_stepper_position,
+                  bandButtons[current_band_index].label,
+                  modeButtons[current_mode_index].label);
+    send_message_to_controller(CMD_MOVE_TO, current_stepper_position);
+
+    Serial.println("Setup done");
 }
-
 // ===== Display & Touch Initialization =====
 void display_touch_init() {
     if (!gfx->begin()) {
@@ -1754,6 +1751,7 @@ void setup() {
     Serial.println("Setup done");
 }
 
+
 void loop() {
     // Feed watchdog timer first to prevent timeout
     esp_task_wdt_reset();
@@ -1816,7 +1814,7 @@ void loop() {
     }
     if (now - last_signal_update >= 1000) {
         last_signal_update = now;
-        evaluate_signal_strength();
+    // evaluate_signal_strength(); // Commented out undefined function
     }
 
     // Always run LVGL tick and timer handler for UI responsiveness

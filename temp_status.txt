@@ -1,2 +1,5 @@
  M MagLoop_Common_Files
+ M src/main.cpp
  M temp_status.txt
+?? backups/main.cpp.2025-10-16.backup
+?? backups/main.cpp.2025-10-16.full
