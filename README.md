@@ -103,9 +103,10 @@ Touch calibration and display pins are configured for JC4827W543C hardware.
 - Fixed LVGL font configuration issues
 
 
+
 ## Batch Scripts for Syncing Code
 
-Two batch files are provided to help you keep your StepperGUI and MagLoop_Common_Files repositories up to date:
+Use the following batch files to keep your StepperGUI and MagLoop_Common_Files repositories up to date:
 
 - **download_latest_code.bat**: Pulls the latest code from both StepperGUI and MagLoop_Common_Files.
 - **upload_code_if_changed.bat**: Checks for changes in both repositories and pushes updates only if changes are detected.
