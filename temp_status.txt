@@ -1,3 +1,2 @@
  M MagLoop_Common_Files
- M README.md
  M temp_status.txt
