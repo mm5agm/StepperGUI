@@ -309,7 +309,7 @@ static void create_speed_delay_controls_impl() {
     }
 
     lv_obj_t* prev_cont = NULL;
-    auto add_speed_control_grouped = [&](const char* label, int32_t* value, int min, int max, int idx) {
+    auto add_speed_control_grouped = [&](const char* label, int32_t* value, int min, int max, int idx, const char* pref_key, CommandType controller_cmd) {
         lv_obj_t* parent = lv_scr_act();
         lv_obj_t* cont = lv_obj_create(parent);
         lv_obj_set_size(cont, container_w, container_h);
@@ -346,9 +346,15 @@ static void create_speed_delay_controls_impl() {
         lv_obj_t* dec_lbl = lv_label_create(dec_btn);
         lv_label_set_text(dec_lbl, "-");
         lv_obj_center(dec_lbl);
-        int* min_ptr = new int(min);
-        lv_obj_add_event_cb(dec_btn, speed_dec_btn_event_cb, LV_EVENT_CLICKED, min_ptr);
-        lv_obj_set_user_data(dec_btn, value);
+        // Allocate per-control context
+        SpeedControlData* scd = (SpeedControlData*)malloc(sizeof(SpeedControlData));
+        scd->value = value;
+        scd->min = min;
+        scd->max = max;
+        scd->val_label = NULL; // set after creating val_lbl
+        scd->pref_key = pref_key;
+        scd->controller_cmd = controller_cmd;
+        lv_obj_add_event_cb(dec_btn, speed_dec_btn_event_cb, LV_EVENT_CLICKED, scd);
         lv_obj_align(dec_btn, LV_ALIGN_LEFT_MID, 70, 0);
 
         lv_obj_t* val_lbl = lv_label_create(cont);
@@ -365,19 +371,19 @@ static void create_speed_delay_controls_impl() {
         lv_obj_t* inc_lbl = lv_label_create(inc_btn);
         lv_label_set_text(inc_lbl, "+");
         lv_obj_center(inc_lbl);
-        int* max_ptr = new int(max);
-        lv_obj_add_event_cb(inc_btn, speed_inc_btn_event_cb, LV_EVENT_CLICKED, max_ptr);
-        lv_obj_set_user_data(inc_btn, value);
+        lv_obj_add_event_cb(inc_btn, speed_inc_btn_event_cb, LV_EVENT_CLICKED, scd);
+        // Wire up val_label in the context now that it's created
+        scd->val_label = val_lbl;
         lv_obj_align(inc_btn, LV_ALIGN_LEFT_MID, 135, 0);
         // Remember this container so the next one can be aligned below it
         prev_cont = cont;
         Serial.printf("DEBUG: created speed control '%s' at cont=%p\n", label, cont);
     };
 
-    add_speed_control_grouped("Slow", &slow_speed_pulse_delay, 100, 5000, 0);
-    add_speed_control_grouped("Medium", &medium_speed_pulse_delay, 50, 2000, 1);
-    add_speed_control_grouped("Fast", &fast_speed_pulse_delay, 10, 1000, 2);
-    add_speed_control_grouped("MoveTo", &move_to_pulse_delay, 50, 3000, 3);
+    add_speed_control_grouped("Slow", &slow_speed_pulse_delay, 100, 5000, 0, "slow_pulse_delay", CMD_SLOW_SPEED_PULSE_DELAY);
+    add_speed_control_grouped("Medium", &medium_speed_pulse_delay, 50, 2000, 1, "medium_pulse_delay", CMD_MEDIUM_SPEED_PULSE_DELAY);
+    add_speed_control_grouped("Fast", &fast_speed_pulse_delay, 10, 1000, 2, "fast_pulse_delay", CMD_FAST_SPEED_PULSE_DELAY);
+    add_speed_control_grouped("MoveTo", &move_to_pulse_delay, 50, 3000, 3, "move_to_pulse_delay", CMD_MOVE_TO_PULSE_DELAY);
 }
 
 // Timer callback to retry creation when LVGL has finished layout
@@ -1179,26 +1185,49 @@ static void update_limit_indicators() {
     }
 }
 // ===== Speed Pulse Delay Controls UI Event Callbacks =====
+// Data attached to each speed control to allow callbacks to update value,
+// persist it, and notify the StepperController.
+typedef struct {
+    int32_t* value;          // pointer to the pulse delay variable
+    int min;
+    int max;
+    lv_obj_t* val_label;     // label showing current numeric value
+    CommandType controller_cmd; // CMD_SLOW_SPEED_PULSE_DELAY etc
+    const char* pref_key;    // Preferences key for persistence
+} SpeedControlData;
+
 static void speed_dec_btn_event_cb(lv_event_t* e) {
-    int32_t* value = (int32_t*)lv_event_get_user_data(e);
-    int min = *((int*)lv_event_get_param(e));
-    if (*value > min) *value -= 10;
-    lv_obj_t* parent = lv_obj_get_parent((lv_obj_t*)lv_event_get_current_target(e));
-    lv_obj_t* val_lbl = lv_obj_get_child(parent, 1);
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%d", *value);
-    lv_label_set_text(val_lbl, buf);
+    SpeedControlData* d = (SpeedControlData*)lv_event_get_user_data(e);
+    if (!d || !d->value) return;
+    if (*(d->value) > d->min) {
+        *(d->value) -= 10;
+        // update label
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", (int)*(d->value));
+        if (d->val_label) lv_label_set_text(d->val_label, buf);
+        // persist
+        if (d->pref_key) preferences.putInt(d->pref_key, (int)*(d->value));
+        // notify controller
+        send_message_to_controller(d->controller_cmd, *(d->value));
+        Serial.printf("Speed dec: %s -> %d\n", d->pref_key ? d->pref_key : "?", (int)*(d->value));
+    }
 }
 
 static void speed_inc_btn_event_cb(lv_event_t* e) {
-    int32_t* value = (int32_t*)lv_event_get_user_data(e);
-    int max = *((int*)lv_event_get_param(e));
-    if (*value < max) *value += 10;
-    lv_obj_t* parent = lv_obj_get_parent((lv_obj_t*)lv_event_get_current_target(e));
-    lv_obj_t* val_lbl = lv_obj_get_child(parent, 1);
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%d", *value);
-    lv_label_set_text(val_lbl, buf);
+    SpeedControlData* d = (SpeedControlData*)lv_event_get_user_data(e);
+    if (!d || !d->value) return;
+    if (*(d->value) < d->max) {
+        *(d->value) += 10;
+        // update label
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", (int)*(d->value));
+        if (d->val_label) lv_label_set_text(d->val_label, buf);
+        // persist
+        if (d->pref_key) preferences.putInt(d->pref_key, (int)*(d->value));
+        // notify controller
+        send_message_to_controller(d->controller_cmd, *(d->value));
+        Serial.printf("Speed inc: %s -> %d\n", d->pref_key ? d->pref_key : "?", (int)*(d->value));
+    }
 }
 
 // ===== Speed Pulse Delay Controls UI =====
