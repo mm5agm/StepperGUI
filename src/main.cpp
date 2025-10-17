@@ -308,6 +308,17 @@ static void create_speed_delay_controls_impl() {
         Serial.println("DEBUG: rx_message_box is NULL, using fallback start_y");
     }
 
+    // Data attached to each speed control to allow callbacks to update value,
+    // persist it, and notify the StepperController.
+    typedef struct {
+        int32_t* value;          // pointer to the pulse delay variable
+        int min;
+        int max;
+        lv_obj_t* val_label;     // label showing current numeric value
+        CommandType controller_cmd; // CMD_SLOW_SPEED_PULSE_DELAY etc
+        const char* pref_key;    // Preferences key for persistence
+    } SpeedControlData;
+
     lv_obj_t* prev_cont = NULL;
     auto add_speed_control_grouped = [&](const char* label, int32_t* value, int min, int max, int idx, const char* pref_key, CommandType controller_cmd) {
         lv_obj_t* parent = lv_scr_act();
@@ -1185,16 +1196,6 @@ static void update_limit_indicators() {
     }
 }
 // ===== Speed Pulse Delay Controls UI Event Callbacks =====
-// Data attached to each speed control to allow callbacks to update value,
-// persist it, and notify the StepperController.
-typedef struct {
-    int32_t* value;          // pointer to the pulse delay variable
-    int min;
-    int max;
-    lv_obj_t* val_label;     // label showing current numeric value
-    CommandType controller_cmd; // CMD_SLOW_SPEED_PULSE_DELAY etc
-    const char* pref_key;    // Preferences key for persistence
-} SpeedControlData;
 
 static void speed_dec_btn_event_cb(lv_event_t* e) {
     SpeedControlData* d = (SpeedControlData*)lv_event_get_user_data(e);
