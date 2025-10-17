@@ -157,6 +157,17 @@ static int32_t medium_speed_pulse_delay = 500;
 static int32_t fast_speed_pulse_delay = 200;
 static int32_t move_to_pulse_delay = 800;
 
+// Data attached to each speed control to allow callbacks to update value,
+// persist it, and notify the StepperController.
+typedef struct {
+    int32_t* value;          // pointer to the pulse delay variable
+    int min;
+    int max;
+    lv_obj_t* val_label;     // label showing current numeric value
+    CommandType controller_cmd; // CMD_SLOW_SPEED_PULSE_DELAY etc
+    const char* pref_key;    // Preferences key for persistence
+} SpeedControlData;
+
 #define MOVE_BTN_COLOR_RELEASED 0x0000FF
 #define MOVE_BTN_COLOR_PRESSED 0xFF0000
 #define MOVE_BTN_WIDTH 60
@@ -307,17 +318,6 @@ static void create_speed_delay_controls_impl() {
         start_y = RX_MESSAGE_BOX_Y + 52 + 5;
         Serial.println("DEBUG: rx_message_box is NULL, using fallback start_y");
     }
-
-    // Data attached to each speed control to allow callbacks to update value,
-    // persist it, and notify the StepperController.
-    typedef struct {
-        int32_t* value;          // pointer to the pulse delay variable
-        int min;
-        int max;
-        lv_obj_t* val_label;     // label showing current numeric value
-        CommandType controller_cmd; // CMD_SLOW_SPEED_PULSE_DELAY etc
-        const char* pref_key;    // Preferences key for persistence
-    } SpeedControlData;
 
     lv_obj_t* prev_cont = NULL;
     auto add_speed_control_grouped = [&](const char* label, int32_t* value, int min, int max, int idx, const char* pref_key, CommandType controller_cmd) {
