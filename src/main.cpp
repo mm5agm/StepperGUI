@@ -66,6 +66,12 @@ lv_style_t style_signal_slider;
 #define PREFS_NAMESPACE "magloop"
 #endif
 
+// Preferences schema version - bump this when code defaults change and you
+// want devices to adopt the new defaults on next firmware update.
+#ifndef PREFS_VERSION
+#define PREFS_VERSION 1
+#endif
+
 #ifndef POSITION_ROWS_DEFINED
 #define POSITION_ROWS_DEFINED
 static int32_t positionArray[POSITION_ROWS][POSITION_COLS];
@@ -136,6 +142,7 @@ static void update_limit_indicators();
 void create_speed_delay_controls();
 void init_button_styles(void);
 void create_move_buttons();
+static bool send_message_to_controller(CommandType cmd, int32_t param);
 void band_radio_button_event_cb(lv_event_t* e);
 void mode_button_event_cb(lv_event_t* e);
 void onDataRecv(const uint8_t* mac, const uint8_t* data, int len);
@@ -157,6 +164,12 @@ static int32_t medium_speed_pulse_delay = 500;
 static int32_t fast_speed_pulse_delay = 200;
 static int32_t move_to_pulse_delay = 800;
 
+// Explicit compile-time defaults used for resets
+#define DEFAULT_SLOW_PULSE_DELAY 1000
+#define DEFAULT_MEDIUM_PULSE_DELAY 500
+#define DEFAULT_FAST_PULSE_DELAY 200
+#define DEFAULT_MOVE_TO_PULSE_DELAY 800
+
 // Data attached to each speed control to allow callbacks to update value,
 // persist it, and notify the StepperController.
 typedef struct {
@@ -166,7 +179,11 @@ typedef struct {
     lv_obj_t* val_label;     // label showing current numeric value
     CommandType controller_cmd; // CMD_SLOW_SPEED_PULSE_DELAY etc
     const char* pref_key;    // Preferences key for persistence
+    lv_timer_t* save_timer;  // debounce timer for saving to prefs
 } SpeedControlData;
+
+// Pointers to per-control contexts so Reset/Save UI can update them
+static SpeedControlData* g_speed_controls[4] = { NULL, NULL, NULL, NULL };
 
 #define MOVE_BTN_COLOR_RELEASED 0x0000FF
 #define MOVE_BTN_COLOR_PRESSED 0xFF0000
@@ -365,6 +382,7 @@ static void create_speed_delay_controls_impl() {
         scd->val_label = NULL; // set after creating val_lbl
         scd->pref_key = pref_key;
         scd->controller_cmd = controller_cmd;
+        scd->save_timer = NULL;
         lv_obj_add_event_cb(dec_btn, speed_dec_btn_event_cb, LV_EVENT_CLICKED, scd);
         lv_obj_align(dec_btn, LV_ALIGN_LEFT_MID, 70, 0);
 
@@ -388,13 +406,60 @@ static void create_speed_delay_controls_impl() {
         lv_obj_align(inc_btn, LV_ALIGN_LEFT_MID, 135, 0);
         // Remember this container so the next one can be aligned below it
         prev_cont = cont;
+        // Save global pointer for reset/save operations
+        if (idx >= 0 && idx < 4) g_speed_controls[idx] = scd;
         Serial.printf("DEBUG: created speed control '%s' at cont=%p\n", label, cont);
     };
 
-    add_speed_control_grouped("Slow", &slow_speed_pulse_delay, 100, 5000, 0, "slow_pulse_delay", CMD_SLOW_SPEED_PULSE_DELAY);
-    add_speed_control_grouped("Medium", &medium_speed_pulse_delay, 50, 2000, 1, "medium_pulse_delay", CMD_MEDIUM_SPEED_PULSE_DELAY);
-    add_speed_control_grouped("Fast", &fast_speed_pulse_delay, 10, 1000, 2, "fast_pulse_delay", CMD_FAST_SPEED_PULSE_DELAY);
-    add_speed_control_grouped("MoveTo", &move_to_pulse_delay, 50, 3000, 3, "move_to_pulse_delay", CMD_MOVE_TO_PULSE_DELAY);
+    add_speed_control_grouped("Slow", &slow_speed_pulse_delay, 100, 5000, 0, "spd_slow", CMD_SLOW_SPEED_PULSE_DELAY);
+    add_speed_control_grouped("Medium", &medium_speed_pulse_delay, 50, 2000, 1, "spd_med", CMD_MEDIUM_SPEED_PULSE_DELAY);
+    add_speed_control_grouped("Fast", &fast_speed_pulse_delay, 10, 1000, 2, "spd_fast", CMD_FAST_SPEED_PULSE_DELAY);
+    add_speed_control_grouped("MoveTo", &move_to_pulse_delay, 50, 3000, 3, "spd_move", CMD_MOVE_TO_PULSE_DELAY);
+
+    // No Save/Reset buttons here — persistence happens immediately on +/-
+    // and reset is handled via the power button long-press if needed.
+}
+
+static void hard_reset_pulse_delays(bool persist) {
+    Serial.println("Hard reset: restoring pulse-delay defaults");
+    // Cancel any pending save timers and reset in-memory values and UI labels
+    const int32_t defaults[4] = { DEFAULT_SLOW_PULSE_DELAY, DEFAULT_MEDIUM_PULSE_DELAY, DEFAULT_FAST_PULSE_DELAY, DEFAULT_MOVE_TO_PULSE_DELAY };
+    for (int i = 0; i < 4; ++i) {
+        if (g_speed_controls[i]) {
+            SpeedControlData* sd = g_speed_controls[i];
+            // Cancel any pending timer
+            if (sd->save_timer) {
+                lv_timer_del(sd->save_timer);
+                sd->save_timer = NULL;
+            }
+            // Update in-memory value
+            *(sd->value) = defaults[i];
+            // Update UI label
+            if (sd->val_label) {
+                char buf[16];
+                snprintf(buf, sizeof(buf), "%d", (int)*(sd->value));
+                lv_label_set_text(sd->val_label, buf);
+                lv_obj_invalidate(sd->val_label);
+            }
+            // Notify controller of new value
+            send_message_to_controller(sd->controller_cmd, *(sd->value));
+        }
+    }
+    if (persist) {
+        preferences.begin(PREFS_NAMESPACE, false);
+        preferences.putInt("spd_slow", (int)defaults[0]);
+        preferences.putInt("spd_med", (int)defaults[1]);
+        preferences.putInt("spd_fast", (int)defaults[2]);
+        preferences.putInt("spd_move", (int)defaults[3]);
+        int v0 = preferences.getInt("spd_slow", -1);
+        int v1 = preferences.getInt("spd_med", -1);
+        int v2 = preferences.getInt("spd_fast", -1);
+        int v3 = preferences.getInt("spd_move", -1);
+        preferences.end();
+        Serial.printf("Defaults persisted to preferences (verified: %d %d %d %d)\n", v0, v1, v2, v3);
+    } else {
+        Serial.println("Defaults applied in-memory only (not persisted)");
+    }
 }
 
 // Timer callback to retry creation when LVGL has finished layout
@@ -921,10 +986,10 @@ static bool load_positions_from_file() {
     }
 
     // Load stepper speed pulse delay variables from preferences
-    slow_speed_pulse_delay = preferences.getInt("slow_pulse_delay", 1000);
-    medium_speed_pulse_delay = preferences.getInt("medium_pulse_delay", 500);
-    fast_speed_pulse_delay = preferences.getInt("fast_pulse_delay", 200);
-    move_to_pulse_delay = preferences.getInt("move_to_pulse_delay", 800);
+    slow_speed_pulse_delay = preferences.getInt("spd_slow", 1000);
+    medium_speed_pulse_delay = preferences.getInt("spd_med", 500);
+    fast_speed_pulse_delay = preferences.getInt("spd_fast", 200);
+    move_to_pulse_delay = preferences.getInt("spd_move", 800);
 
     preferences.end();
 
@@ -969,6 +1034,43 @@ static bool load_positions_from_file() {
         modeButtons[current_mode_index].label, current_mode_index,
         (int)current_stepper_position, autosave_on ? "On" : "Off");
     return true;
+}
+
+// Check stored preferences version and migrate defaults if needed.
+static void check_and_migrate_prefs() {
+    // Read stored prefs version first
+    preferences.begin(PREFS_NAMESPACE, true);
+    int stored_version = preferences.getInt("prefs_version", 0);
+    preferences.end();
+
+    // Always ensure the pulse-delay keys exist (non-destructive).
+    // This prevents noisy NOT_FOUND logs on first boot after flashing and
+    // ensures the app has sensible defaults available immediately.
+    preferences.begin(PREFS_NAMESPACE, false);
+    if (!preferences.isKey("spd_slow")) {
+        preferences.putInt("spd_slow", (int)slow_speed_pulse_delay);
+        Serial.println("Created missing key: spd_slow");
+    }
+    if (!preferences.isKey("spd_med")) {
+        preferences.putInt("spd_med", (int)medium_speed_pulse_delay);
+        Serial.println("Created missing key: spd_med");
+    }
+    if (!preferences.isKey("spd_fast")) {
+        preferences.putInt("spd_fast", (int)fast_speed_pulse_delay);
+        Serial.println("Created missing key: spd_fast");
+    }
+    if (!preferences.isKey("spd_move")) {
+        preferences.putInt("spd_move", (int)move_to_pulse_delay);
+        Serial.println("Created missing key: spd_move");
+    }
+
+    // If prefs version changed in code, update stored version (non-destructive)
+    if (stored_version != PREFS_VERSION) {
+        Serial.printf("Prefs version mismatch (stored=%d code=%d) - updating prefs_version only\n", stored_version, PREFS_VERSION);
+        preferences.putInt("prefs_version", PREFS_VERSION);
+    }
+    preferences.end();
+    Serial.println("Prefs check complete (missing keys created if any)");
 }
 
 // Helper function to clamp position within valid range
@@ -1206,8 +1308,19 @@ static void speed_dec_btn_event_cb(lv_event_t* e) {
         char buf[16];
         snprintf(buf, sizeof(buf), "%d", (int)*(d->value));
         if (d->val_label) lv_label_set_text(d->val_label, buf);
-        // persist
-        if (d->pref_key) preferences.putInt(d->pref_key, (int)*(d->value));
+        // persist immediately (no debounce) so next boot loads this value
+        if (d->save_timer) {
+            // cancel any existing debounce timer if present
+            lv_timer_del(d->save_timer);
+            d->save_timer = NULL;
+        }
+        if (d->pref_key) {
+            preferences.begin(PREFS_NAMESPACE, false);
+            preferences.putInt(d->pref_key, (int)*(d->value));
+            int verify = preferences.getInt(d->pref_key, -999999);
+            preferences.end();
+            Serial.printf("Saved immediately: %s -> %d (verified=%d)\n", d->pref_key, (int)*(d->value), verify);
+        }
         // notify controller
         send_message_to_controller(d->controller_cmd, *(d->value));
         Serial.printf("Speed dec: %s -> %d\n", d->pref_key ? d->pref_key : "?", (int)*(d->value));
@@ -1223,8 +1336,18 @@ static void speed_inc_btn_event_cb(lv_event_t* e) {
         char buf[16];
         snprintf(buf, sizeof(buf), "%d", (int)*(d->value));
         if (d->val_label) lv_label_set_text(d->val_label, buf);
-        // persist
-        if (d->pref_key) preferences.putInt(d->pref_key, (int)*(d->value));
+        // persist immediately (no debounce) so next boot loads this value
+        if (d->save_timer) {
+            lv_timer_del(d->save_timer);
+            d->save_timer = NULL;
+        }
+        if (d->pref_key) {
+            preferences.begin(PREFS_NAMESPACE, false);
+            preferences.putInt(d->pref_key, (int)*(d->value));
+            int verify = preferences.getInt(d->pref_key, -999999);
+            preferences.end();
+            Serial.printf("Saved immediately: %s -> %d (verified=%d)\n", d->pref_key, (int)*(d->value), verify);
+        }
         // notify controller
         send_message_to_controller(d->controller_cmd, *(d->value));
         Serial.printf("Speed inc: %s -> %d\n", d->pref_key ? d->pref_key : "?", (int)*(d->value));
@@ -1418,36 +1541,18 @@ static void autosave_toggle_cb(lv_event_t* e) {
 }
 
 static void power_btn_cb(lv_event_t* e) {
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_CLICKED) {
         Serial.println("Sending CMD_RESET to StepperController...");
         send_message_to_controller(CMD_RESET);
-        Serial.println("Reset command sent. Waiting for controller to restart "
-                       "and send reset back...");
+        Serial.println("Reset command sent. Waiting for controller to restart and send reset back...");
+    } else if (code == LV_EVENT_LONG_PRESSED) {
+        Serial.println("Power button long-press detected: performing hard reset of pulse-delay defaults (persist)...");
+        hard_reset_pulse_delays(true);
     }
 }
 
-void create_reset_button() {
-    lv_obj_t* autosave_btn = lv_btn_create(lv_scr_act());
-    lv_obj_set_size(autosave_btn, RESET_POWER_BTN_WIDTH,
-                    RESET_POWER_BTN_HEIGHT);
-    lv_obj_align(autosave_btn, LV_ALIGN_TOP_RIGHT, RESET_BTN_X, RESET_BTN_Y);
-    lv_obj_add_style(autosave_btn, &style_toggle_off,
-                     LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_add_style(autosave_btn, &style_toggle_on,
-                     LV_PART_MAIN | LV_STATE_CHECKED);
-    lv_obj_add_event_cb(autosave_btn, autosave_toggle_cb, LV_EVENT_CLICKED,
-                        NULL);
-    g_autosave_btn = autosave_btn;
 
-    // Restore autosave state from position system
-    if (position_system_initialized && autosave_on) {
-        lv_obj_add_state(autosave_btn, LV_STATE_CHECKED);
-    }
-
-    lv_obj_t* ab_label = lv_label_create(autosave_btn);
-    lv_label_set_text(ab_label, LV_SYMBOL_SAVE);
-    lv_obj_center(ab_label);
-}
 
 // ===== Radio Button Creators =====
 void create_band_radio_buttons() {
@@ -1541,15 +1646,32 @@ void create_mode_radio_buttons() {
     }
 }
 
+// Create a small autosave toggle button in the top-right (separate from power)
+void create_autosave_button() {
+    lv_obj_t* autosave_btn = lv_btn_create(lv_scr_act());
+    lv_obj_set_size(autosave_btn, RESET_POWER_BTN_WIDTH, RESET_POWER_BTN_HEIGHT);
+    lv_obj_align(autosave_btn, LV_ALIGN_TOP_RIGHT, RESET_BTN_X, RESET_BTN_Y);
+    lv_obj_add_style(autosave_btn, &style_toggle_off, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_style(autosave_btn, &style_toggle_on, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(autosave_btn, autosave_toggle_cb, LV_EVENT_CLICKED, NULL);
+    g_autosave_btn = autosave_btn;
+
+    if (position_system_initialized && autosave_on) {
+        lv_obj_add_state(autosave_btn, LV_STATE_CHECKED);
+    }
+
+    lv_obj_t* ab_label = lv_label_create(autosave_btn);
+    lv_label_set_text(ab_label, LV_SYMBOL_SAVE);
+    lv_obj_center(ab_label);
+}
+
 void create_power_button() {
     lv_obj_t* power_btn = lv_btn_create(lv_scr_act());
     lv_obj_set_size(power_btn, RESET_POWER_BTN_WIDTH, RESET_POWER_BTN_HEIGHT);
     if (g_autosave_btn) {
-        lv_obj_align_to(power_btn, g_autosave_btn, LV_ALIGN_OUT_LEFT_MID,
-                        POWER_BTN_GAP, 0);
+        lv_obj_align_to(power_btn, g_autosave_btn, LV_ALIGN_OUT_LEFT_MID, POWER_BTN_GAP, 0);
     } else {
-        lv_obj_align(power_btn, LV_ALIGN_TOP_RIGHT, POWER_BTN_FALLBACK_X,
-                     RESET_BTN_Y);
+        lv_obj_align(power_btn, LV_ALIGN_TOP_RIGHT, POWER_BTN_FALLBACK_X, RESET_BTN_Y);
     }
     lv_obj_add_style(power_btn, &style_toggle_on,
                      LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1705,7 +1827,7 @@ void build_ui() {
     create_move_buttons();
     create_band_radio_buttons();
     create_mode_radio_buttons();
-    create_reset_button();
+    create_autosave_button();
     create_power_button();
     create_message_boxes();
     create_limit_indicators();
@@ -1823,6 +1945,8 @@ void setup() {
 
     // Initialize position storage system
     Serial.println("Initializing position storage system...");
+    // Migrate or overwrite prefs with code defaults when PREFS_VERSION changes
+    check_and_migrate_prefs();
     if (!load_positions_from_file()) {
         Serial.println("Using default position values");
         initialize_position_array();
@@ -1949,3 +2073,7 @@ void loop() {
     lv_timer_handler();
     delay(5);
 }
+
+// (Save/Reset buttons and dialog removed — persistence happens immediately and
+// reset is available via power-button long-press which still calls
+// hard_reset_pulse_delays(true)).
