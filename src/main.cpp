@@ -75,8 +75,8 @@ lv_style_t style_signal_slider;
 #ifndef POSITION_ROWS_DEFINED
 #define POSITION_ROWS_DEFINED
 static int32_t positionArray[POSITION_ROWS][POSITION_COLS];
-static int current_band_index = 0; // Index into bandButtons array
-static int current_mode_index = 0; // Index into modeButtons array
+static int current_band_index = 0; // Index into band_buttons array
+static int current_mode_index = 0; // Index into mode_buttons array
 static int32_t current_stepper_position = 0;
 static bool position_system_initialized = false;
 static bool autosave_on = false;
@@ -145,8 +145,9 @@ void create_move_buttons();
 static bool send_message_to_controller(CommandType cmd, int32_t param);
 void band_radio_button_event_cb(lv_event_t* e);
 void mode_button_event_cb(lv_event_t* e);
-void onDataRecv(const uint8_t* mac, const uint8_t* data, int len);
-void onDataSent(const uint8_t* mac, esp_now_send_status_t status);
+void on_data_recv(const uint8_t* mac, const uint8_t* data, int len);
+void on_data_sent(const uint8_t* mac, esp_now_send_status_t status);
+static const char* cmd_to_str(CommandType cmd);
 void send_message(CommandType cmd, int param, int messageId);
 
 // Forward declarations for message box update functions
@@ -155,8 +156,8 @@ static void add_rx_message(const char* message);
 static void speed_dec_btn_event_cb(lv_event_t* e);
 static void speed_inc_btn_event_cb(lv_event_t* e);
 // ESP-NOW and preferences globals
-uint8_t controllerMAC[] = {0xEC, 0xE3, 0x34, 0xC0, 0x33, 0xC0};
-static esp_now_peer_info_t peerInfo;
+uint8_t controller_mac[] = {0xEC, 0xE3, 0x34, 0xC0, 0x33, 0xC0};
+static esp_now_peer_info_t peer_info;
 // Function definitions (move any misplaced ones here)
 // Stepper speed pulse delay variables (single definition at file scope)
 static int32_t slow_speed_pulse_delay = 1000;
@@ -250,14 +251,14 @@ void init_button_styles(void);
 void create_move_buttons();
 void band_radio_button_event_cb(lv_event_t* e);
 void mode_button_event_cb(lv_event_t* e);
-void onDataRecv(const uint8_t* mac, const uint8_t* data, int len);
-void onDataSent(const uint8_t* mac, esp_now_send_status_t status);
+void on_data_recv(const uint8_t* mac, const uint8_t* data, int len);
+void on_data_sent(const uint8_t* mac, esp_now_send_status_t status);
 void send_message(CommandType cmd, int param, int messageId);
 
 // Forward declarations for message box update functions
 static void add_tx_message(const char* message);
 static void add_rx_message(const char* message);
-static uint8_t nextMessageId = 1;
+static uint8_t next_message_id = 1;
 // Function definitions (move any misplaced ones here)
 // Helper function for speed control blocks (single definition at file scope)
 static void add_speed_control(lv_obj_t* parent, const char* label, int32_t* value, int min, int max) {
@@ -523,25 +524,25 @@ static void add_rx_message(const char* message) {
 // Sends a command to the controller via ESP-NOW and updates the TX message box
 static bool send_message_to_controller(CommandType cmd, int32_t param = STEPPER_PARAM_UNUSED) {
     Message msg;
-    msg.messageId = nextMessageId++;
+    msg.messageId = next_message_id++;
     msg.command = cmd;
     msg.param = param;
-    esp_err_t res = esp_now_send(controllerMAC, (uint8_t*)&msg, sizeof(msg));
+    esp_err_t res = esp_now_send(controller_mac, (uint8_t*)&msg, sizeof(msg));
     if (res != ESP_OK) {
-        Serial.printf("TX FAILED: %s (cmd=%s)\n", esp_err_to_name(res), commandToString(cmd));
+        Serial.printf("TX FAILED: %s (cmd=%s)\n", esp_err_to_name(res), cmd_to_str(cmd));
         return false;
     }
-    Serial.printf("TX: %s, param=%d, id=%u\n", commandToString(cmd), (int)param, msg.messageId);
+    Serial.printf("TX: %s, param=%d, id=%u\n", cmd_to_str(cmd), (int)param, msg.messageId);
 
     // Add to GUI message box
     char tx_msg[64];
-    snprintf(tx_msg, sizeof(tx_msg), "%s p=%d id=%u", commandToString(cmd), (int)param, msg.messageId);
+    snprintf(tx_msg, sizeof(tx_msg), "%s p=%d id=%u", cmd_to_str(cmd), (int)param, msg.messageId);
     add_tx_message(tx_msg);
     return true;
 }
 
 
-void onDataRecv(const uint8_t* mac, const uint8_t* data, int len) {
+void on_data_recv(const uint8_t* mac, const uint8_t* data, int len) {
     if (mac) {
         Serial.printf("GUI onDataRecv from %02X:%02X:%02X:%02X:%02X:%02X\n",
                       mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -583,7 +584,7 @@ void onDataRecv(const uint8_t* mac, const uint8_t* data, int len) {
     // Add to GUI message box
     char rx_msg[64];
     snprintf(rx_msg, sizeof(rx_msg), "%s p=%ld id=%u",
-             commandToString((CommandType)msg.command), (long)msg.param,
+             cmd_to_str((CommandType)msg.command), (long)msg.param,
              (unsigned)msg.messageId);
     add_rx_message(rx_msg);
 
@@ -641,7 +642,7 @@ void onDataRecv(const uint8_t* mac, const uint8_t* data, int len) {
     }
 }
 
-void onDataSent(const uint8_t* mac, esp_now_send_status_t status) {
+void on_data_sent(const uint8_t* mac, esp_now_send_status_t status) {
     // Track send failures more conservatively to reduce bouncing
     if (status == ESP_NOW_SEND_SUCCESS) {
         if (recent_message_failures > 0) {
@@ -676,7 +677,7 @@ void send_message(CommandType cmd, int param = STEPPER_PARAM_UNUSED,
     msg.messageId = messageId;
     msg.command = cmd;
     msg.param = param;
-    esp_now_send(controllerMAC, (uint8_t*)&msg, sizeof(msg));
+    esp_now_send(controller_mac, (uint8_t*)&msg, sizeof(msg));
 }
 
 // ===== Move Button Struct & Data =====
@@ -686,20 +687,20 @@ typedef struct {
     CommandType command;
 } MoveButton;
 
-MoveButton moveButtons[] = {
+MoveButton move_buttons[] = {
     {"↑", "Slow", CMD_UP_SLOW},    {"↑", "Med", CMD_UP_MEDIUM},
     {"↑", "Fast", CMD_UP_FAST},    {"↓", "Slow", CMD_DOWN_SLOW},
     {"↓", "Med", CMD_DOWN_MEDIUM}, {"↓", "Fast", CMD_DOWN_FAST}};
 
-static int move_btn_indices[sizeof(moveButtons) / sizeof(moveButtons[0])];
+static int move_btn_indices[sizeof(move_buttons) / sizeof(move_buttons[0])];
 
 // ===== Radio Button Struct & Data =====
 typedef struct {
     const char* label;
 } Button;
 
-Button modeButtons[] = {{"CW"}, {"SSB"}, {"FT4"}, {"FT8"}};
-Button bandButtons[] = {{"10"}, {"12"}, {"15"}, {"17"}, {"20"}, {"30"}};
+Button mode_buttons[] = {{"CW"}, {"SSB"}, {"FT4"}, {"FT8"}};
+Button band_buttons[] = {{"10"}, {"12"}, {"15"}, {"17"}, {"20"}, {"30"}};
 
 static lv_obj_t* last_mode_btn = NULL;
 static lv_obj_t* last_band_btn = NULL;
@@ -716,11 +717,11 @@ Arduino_DataBus* bus = new Arduino_ESP32QSPI(DISP_CS, DISP_SCK, DISP_D0,
 Arduino_NV3041A* gfx =
     new Arduino_NV3041A(bus, GFX_NOT_DEFINED, PORTRAIT_ROTATION, true);
 
-Touch_GT911 touchController(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RES,
+Touch_GT911 touch_controller(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RES,
                             TOUCH_WIDTH, TOUCH_HEIGHT);
 
 // ===== LVGL Globals =====
-uint32_t screenWidth, screenHeight, bufSize_px;
+uint32_t screen_width, screen_height, buf_size_px;
 lv_display_t* disp;
 lv_color_t* disp_draw_buf;
 lv_obj_t* g_autosave_btn = NULL;
@@ -735,16 +736,16 @@ void my_disp_flush(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
 }
 
 void my_touchpad_read(lv_indev_t* indev, lv_indev_data_t* data) {
-    touchController.read();
+    touch_controller.read();
 
-    if (touchController.isTouched && touchController.touches > 0) {
+    if (touch_controller.isTouched && touch_controller.touches > 0) {
         int16_t tx, ty;
         if (PORTRAIT_ROTATION == 1) {
-            tx = touchController.points[0].y;
-            ty = TOUCH_WIDTH - touchController.points[0].x;
+            tx = touch_controller.points[0].y;
+            ty = TOUCH_WIDTH - touch_controller.points[0].x;
         } else {
-            tx = TOUCH_HEIGHT - touchController.points[0].y;
-            ty = touchController.points[0].x;
+            tx = TOUCH_HEIGHT - touch_controller.points[0].y;
+            ty = touch_controller.points[0].x;
         }
         data->point.x = tx;
         data->point.y = ty;
@@ -813,8 +814,8 @@ static void move_btn_event_cb(lv_event_t* e) {
     if (ud) {
         int idx = *((int*)ud);
         if (idx >= 0 &&
-            idx < (int)(sizeof(moveButtons) / sizeof(moveButtons[0]))) {
-            mb = &moveButtons[idx];
+            idx < (int)(sizeof(move_buttons) / sizeof(move_buttons[0]))) {
+            mb = &move_buttons[idx];
         } else if (idx < 0) {
             static MoveButton test_mb_local = {">", "Test", CMD_UP_SLOW};
             test_mb_ptr = &test_mb_local;
@@ -851,8 +852,8 @@ void band_radio_button_event_cb(lv_event_t* e) {
 
         // Find band index
         int band_index = -1;
-        for (int i = 0; i < sizeof(bandButtons) / sizeof(bandButtons[0]); i++) {
-            if (strcmp(bandButtons[i].label, label) == 0) {
+        for (int i = 0; i < sizeof(band_buttons) / sizeof(band_buttons[0]); i++) {
+            if (strcmp(band_buttons[i].label, label) == 0) {
                 band_index = i;
                 break;
             }
@@ -881,8 +882,8 @@ void mode_button_event_cb(lv_event_t* e) {
 
         // Find mode index
         int mode_index = -1;
-        for (int i = 0; i < sizeof(modeButtons) / sizeof(modeButtons[0]); i++) {
-            if (strcmp(modeButtons[i].label, label) == 0) {
+        for (int i = 0; i < sizeof(mode_buttons) / sizeof(mode_buttons[0]); i++) {
+            if (strcmp(mode_buttons[i].label, label) == 0) {
                 mode_index = i;
                 break;
             }
@@ -962,7 +963,7 @@ static bool save_single_position(int band_index, int mode_index,
     preferences.end();
 
     Serial.printf("Position saved for %s/%s: %d\n",
-                  bandButtons[band_index].label, modeButtons[mode_index].label,
+                  band_buttons[band_index].label, mode_buttons[mode_index].label,
                   (int)position);
     return true;
 }
@@ -1030,8 +1031,8 @@ static bool load_positions_from_file() {
 
     Serial.printf(
         "  Final: Band=%s(%d), Mode=%s(%d), Position=%d, AutoSave=%s\n",
-        bandButtons[current_band_index].label, current_band_index,
-        modeButtons[current_mode_index].label, current_mode_index,
+        band_buttons[current_band_index].label, current_band_index,
+        mode_buttons[current_mode_index].label, current_mode_index,
         (int)current_stepper_position, autosave_on ? "On" : "Off");
     return true;
 }
@@ -1125,8 +1126,8 @@ static void change_band_mode(int band_index, int mode_index) {
             current_stepper_position;
         Serial.printf("Saved current position %d to old %s/%s\n",
                       (int)current_stepper_position,
-                      bandButtons[current_band_index].label,
-                      modeButtons[current_mode_index].label);
+                                  band_buttons[current_band_index].label,
+                                  mode_buttons[current_mode_index].label);
 
         // Always save position for startup restoration (not just when autosave
         // is on)
@@ -1149,7 +1150,7 @@ static void change_band_mode(int band_index, int mode_index) {
         int32_t stored_position = positionArray[band_index + 1][mode_index];
         Serial.printf(
             "Band/Mode changed to %s/%s, moving to stored position: %d\n",
-            bandButtons[band_index].label, modeButtons[mode_index].label,
+            band_buttons[band_index].label, mode_buttons[mode_index].label,
             (int)stored_position);
 
         // Send move command to stepper to go to stored position
@@ -1419,7 +1420,7 @@ void init_button_styles(void) {
 }
 
 void create_move_buttons() {
-    const int numMoves = sizeof(moveButtons) / sizeof(moveButtons[0]);
+    const int numMoves = sizeof(move_buttons) / sizeof(move_buttons[0]);
     const int cols = 3;
     const int spacing_x = MOVE_BTN_SPACING_X, spacing_y = MOVE_BTN_SPACING_Y;
     const int btn_w = MOVE_BTN_WIDTH, btn_h = MOVE_BTN_HEIGHT;
@@ -1458,14 +1459,14 @@ void create_move_buttons() {
         lv_obj_center(row_cont);
 
         lv_obj_t* arrow_label = lv_label_create(row_cont);
-        lv_label_set_text(arrow_label, moveButtons[i].arrow);
+        lv_label_set_text(arrow_label, move_buttons[i].arrow);
         lv_obj_set_style_text_font(arrow_label, &Arial_Arrows_14, 0);
         lv_obj_clear_flag(arrow_label, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_bg_opa(arrow_label, LV_OPA_TRANSP, 0);
         lv_obj_set_style_text_color(arrow_label, lv_color_hex(0xFFFFFF), 0);
 
         lv_obj_t* text_label = lv_label_create(row_cont);
-        lv_label_set_text(text_label, moveButtons[i].text);
+        lv_label_set_text(text_label, move_buttons[i].text);
         lv_obj_set_style_text_font(text_label, LV_FONT_DEFAULT, 0);
         lv_obj_clear_flag(text_label, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_bg_opa(text_label, LV_OPA_TRANSP, 0);
@@ -1474,7 +1475,7 @@ void create_move_buttons() {
 
         move_btn_indices[i] = i;
         lv_obj_add_event_cb(btn, move_btn_event_cb, LV_EVENT_ALL,
-                            &move_btn_indices[i]);
+                    &move_btn_indices[i]);
     }
 }
 
@@ -1556,13 +1557,13 @@ static void power_btn_cb(lv_event_t* e) {
 
 // ===== Radio Button Creators =====
 void create_band_radio_buttons() {
-    int numBands = sizeof(bandButtons) / sizeof(bandButtons[0]);
+    int numBands = sizeof(band_buttons) / sizeof(band_buttons[0]);
     int spacing = BAND_BTN_SPACING;
     int totalWidth = numBands * bandBtn_width + (numBands - 1) * spacing;
     int startX = (LV_HOR_RES - totalWidth) / 2;
     // Move band buttons 5 pixels above the top row of move buttons
     int screen_h = lv_disp_get_ver_res(NULL);
-    const int numMoves = sizeof(moveButtons) / sizeof(moveButtons[0]);
+    const int numMoves = sizeof(move_buttons) / sizeof(move_buttons[0]);
     const int cols = 3;
     const int spacing_y = MOVE_BTN_SPACING_Y;
     const int btn_h = MOVE_BTN_HEIGHT;
@@ -1579,35 +1580,35 @@ void create_band_radio_buttons() {
         lv_obj_add_style(btn, &style_btn_checked, LV_STATE_CHECKED);
 
         lv_obj_t* label = lv_label_create(btn);
-        lv_label_set_text(label, bandButtons[i].label);
+        lv_label_set_text(label, band_buttons[i].label);
         lv_obj_center(label);
 
         lv_obj_add_event_cb(btn, band_radio_button_event_cb, LV_EVENT_ALL,
-                            (void*)bandButtons[i].label);
+                            (void*)band_buttons[i].label);
 
         // Restore last selected band from position system
         if (position_system_initialized && i == current_band_index) {
             lv_obj_add_state(btn, LV_STATE_CHECKED);
             last_band_btn = btn;
             Serial.printf("Restored band button: %s (index %d)\n",
-                          bandButtons[i].label, i);
+                          band_buttons[i].label, i);
         } else if (!position_system_initialized && i == 0) {
             lv_obj_add_state(btn, LV_STATE_CHECKED);
             last_band_btn = btn;
             Serial.printf("Default band button: %s (index %d)\n",
-                          bandButtons[i].label, i);
+                          band_buttons[i].label, i);
         }
     }
 }
 
 void create_mode_radio_buttons() {
-    int numModes = sizeof(modeButtons) / sizeof(modeButtons[0]);
+    int numModes = sizeof(mode_buttons) / sizeof(mode_buttons[0]);
     int spacing = MODE_BTN_SPACING;
     int totalWidth = numModes * modeBtn_width + (numModes - 1) * spacing;
     int startX = (LV_HOR_RES - totalWidth) / 2;
     // Move mode buttons 5 pixels above the band buttons
     int screen_h = lv_disp_get_ver_res(NULL);
-    const int numMoves = sizeof(moveButtons) / sizeof(moveButtons[0]);
+    const int numMoves = sizeof(move_buttons) / sizeof(move_buttons[0]);
     const int cols = 3;
     const int spacing_y = MOVE_BTN_SPACING_Y;
     const int btn_h = MOVE_BTN_HEIGHT;
@@ -1625,23 +1626,23 @@ void create_mode_radio_buttons() {
         lv_obj_add_style(btn, &style_btn_checked, LV_STATE_CHECKED);
 
         lv_obj_t* label = lv_label_create(btn);
-        lv_label_set_text(label, modeButtons[i].label);
+        lv_label_set_text(label, mode_buttons[i].label);
         lv_obj_center(label);
 
         lv_obj_add_event_cb(btn, mode_button_event_cb, LV_EVENT_ALL,
-                            (void*)modeButtons[i].label);
+                            (void*)mode_buttons[i].label);
 
         // Restore last selected mode from position system
         if (position_system_initialized && i == current_mode_index) {
             lv_obj_add_state(btn, LV_STATE_CHECKED);
             last_mode_btn = btn;
             Serial.printf("Restored mode button: %s (index %d)\n",
-                          modeButtons[i].label, i);
+                          mode_buttons[i].label, i);
         } else if (!position_system_initialized && i == 0) {
             lv_obj_add_state(btn, LV_STATE_CHECKED);
             last_mode_btn = btn;
             Serial.printf("Default mode button: %s (index %d)\n",
-                          modeButtons[i].label, i);
+                          mode_buttons[i].label, i);
         }
     }
 }
@@ -1846,8 +1847,8 @@ void build_ui() {
     // Display startup state for debugging
     Serial.printf("Startup state - Band: %s (index %d), Mode: %s (index %d), "
                   "Position: %d\n",
-                  bandButtons[current_band_index].label, current_band_index,
-                  modeButtons[current_mode_index].label, current_mode_index,
+                  band_buttons[current_band_index].label, current_band_index,
+                  mode_buttons[current_mode_index].label, current_mode_index,
                   (int)current_stepper_position);
 
     // display_touch_init(); // Commented out undefined function
@@ -1865,25 +1866,25 @@ void build_ui() {
     Serial.print("My MAC address is ");
     Serial.println(WiFi.macAddress());
 
-    esp_now_register_recv_cb(onDataRecv);
-    esp_now_register_send_cb(onDataSent);
+    esp_now_register_recv_cb(on_data_recv);
+    esp_now_register_send_cb(on_data_sent);
 
     // Initialize ESP-NOW peer info structure completely
-    memset(&peerInfo, 0, sizeof(esp_now_peer_info_t));
-    memcpy(peerInfo.peer_addr, controllerMAC, 6);
-    peerInfo.channel = 0;
-    peerInfo.ifidx = WIFI_IF_STA;
-    peerInfo.encrypt = false;
+    memset(&peer_info, 0, sizeof(esp_now_peer_info_t));
+    memcpy(peer_info.peer_addr, controller_mac, 6);
+    peer_info.channel = 0;
+    peer_info.ifidx = WIFI_IF_STA;
+    peer_info.encrypt = false;
 
-    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    if (esp_now_add_peer(&peer_info) != ESP_OK) {
         Serial.println("Failed to add peer");
     }
 
     // Move stepper to saved position on startup
     Serial.printf("Moving to startup position: %d for %s/%s\n",
                   (int)current_stepper_position,
-                  bandButtons[current_band_index].label,
-                  modeButtons[current_mode_index].label);
+                  band_buttons[current_band_index].label,
+                  mode_buttons[current_mode_index].label);
     send_message_to_controller(CMD_MOVE_TO, current_stepper_position);
 
     Serial.println("Setup done");
@@ -1900,19 +1901,19 @@ void display_touch_init() {
     digitalWrite(GFX_BL, HIGH);
     gfx->fillScreen(RGB565_BLACK);
 
-    touchController.begin();
+    touch_controller.begin();
     Wire.setClock(40000);
     delay(10);
 
-    touchController.setRotation(ROTATION_INVERTED);
+    touch_controller.setRotation(ROTATION_INVERTED);
 
     lv_init();
 
-    screenWidth = gfx->width();
-    screenHeight = gfx->height();
+    screen_width = gfx->width();
+    screen_height = gfx->height();
 
-    bufSize_px = screenWidth * 40;
-    size_t buf_bytes = bufSize_px * sizeof(lv_color_t);
+    buf_size_px = screen_width * 40;
+    size_t buf_bytes = buf_size_px * sizeof(lv_color_t);
     disp_draw_buf = (lv_color_t*)heap_caps_malloc(
         buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!disp_draw_buf) {
@@ -1925,7 +1926,7 @@ void display_touch_init() {
         }
     }
 
-    disp = lv_display_create(screenWidth, screenHeight);
+    disp = lv_display_create(screen_width, screen_height);
     lv_display_set_flush_cb(disp, my_disp_flush);
     lv_display_set_buffers(disp, disp_draw_buf, NULL, buf_bytes,
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
@@ -1956,8 +1957,8 @@ void setup() {
     // Display startup state for debugging
     Serial.printf("Startup state - Band: %s (index %d), Mode: %s (index %d), "
                   "Position: %d\n",
-                  bandButtons[current_band_index].label, current_band_index,
-                  modeButtons[current_mode_index].label, current_mode_index,
+                  band_buttons[current_band_index].label, current_band_index,
+                  mode_buttons[current_mode_index].label, current_mode_index,
                   (int)current_stepper_position);
 
     display_touch_init();
@@ -1976,25 +1977,25 @@ void setup() {
     Serial.print("My MAC address is ");
     Serial.println(WiFi.macAddress());
 
-    esp_now_register_recv_cb(onDataRecv);
-    esp_now_register_send_cb(onDataSent);
+    esp_now_register_recv_cb(on_data_recv);
+    esp_now_register_send_cb(on_data_sent);
 
     // Initialize ESP-NOW peer info structure completely
-    memset(&peerInfo, 0, sizeof(esp_now_peer_info_t));
-    memcpy(peerInfo.peer_addr, controllerMAC, 6);
-    peerInfo.channel = 0;
-    peerInfo.ifidx = WIFI_IF_STA;
-    peerInfo.encrypt = false;
+    memset(&peer_info, 0, sizeof(esp_now_peer_info_t));
+    memcpy(peer_info.peer_addr, controller_mac, 6);
+    peer_info.channel = 0;
+    peer_info.ifidx = WIFI_IF_STA;
+    peer_info.encrypt = false;
 
-    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    if (esp_now_add_peer(&peer_info) != ESP_OK) {
         Serial.println("Failed to add peer");
     }
 
     // Move stepper to saved position on startup
     Serial.printf("Moving to startup position: %d for %s/%s\n",
                   (int)current_stepper_position,
-                  bandButtons[current_band_index].label,
-                  modeButtons[current_mode_index].label);
+                  band_buttons[current_band_index].label,
+                  mode_buttons[current_mode_index].label);
     send_message_to_controller(CMD_MOVE_TO, current_stepper_position);
 
     Serial.println("Setup done");

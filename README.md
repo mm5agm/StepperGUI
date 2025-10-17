@@ -82,6 +82,14 @@ lib/
 - **`StepperGUI`**: Production build with ESP-NOW communication
 - **`StepperGUI_debug`**: Debug build with enhanced logging and position tracking
 
+### JC4827W543C build notes
+For the `JC4827W543C` environment the build requires an extra include path and a few LVGL compile-time defines so that shared headers and Montserrat font objects are found during compilation and linking. If you edit `platformio.ini` manually, ensure the environment includes:
+
+- Include path: `-I"MagLoop_Common_Files"` (or equivalent path that contains `stepper_commands.h` and other shared headers)
+- LVGL defines: `-D LV_FONT_MONTSERRAT_10=1 -D LV_FONT_MONTSERRAT_12=1 -D LV_FONT_MONTSERRAT_14=1 -D LV_USE_LOG=1`
+
+These flags are applied to the `[env:JC4827W543C]` build_flags in the project so the LVGL library builds the Montserrat font objects and enables logging. Without them you may see missing-header or undefined LVGL font / logging symbols at link time.
+
 ## Configuration
 
 Key configuration constants in `main.cpp`:
