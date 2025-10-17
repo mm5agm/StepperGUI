@@ -233,31 +233,16 @@ static uint8_t nextMessageId = 1;
 // Function definitions (move any misplaced ones here)
 // Helper function for speed control blocks (single definition at file scope)
 static void add_speed_control(lv_obj_t* parent, const char* label, int32_t* value, int min, int max) {
-    lv_obj_t* block = lv_obj_create(parent);
-    lv_obj_set_size(block, 90, 80);
-    lv_obj_set_style_bg_color(block, lv_color_hex(0x333366), 0);
-    lv_obj_set_style_bg_opa(block, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(block, 4, 0);
-    lv_obj_set_flex_flow(block, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(block, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t* lbl = lv_label_create(block);
+    // Label (above the control, centered on parent)
+    lv_obj_t* lbl = lv_label_create(parent);
     lv_label_set_text(lbl, label);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-    lv_obj_center(lbl);
+    lv_obj_align(lbl, LV_ALIGN_TOP_MID, 0, 0);
 
-    lv_obj_t* val_lbl = lv_label_create(block);
-    char val_buf[16];
-    snprintf(val_buf, sizeof(val_buf), "%d", *value);
-    lv_label_set_text(val_lbl, val_buf);
-    lv_obj_set_style_text_color(val_lbl, lv_color_hex(0xFFFF00), 0);
-    lv_obj_set_style_text_font(val_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_center(val_lbl);
-
-    // Decrement button
-    lv_obj_t* dec_btn = lv_btn_create(block);
-    lv_obj_set_size(dec_btn, 32, 28);
+    // Decrement button (left)
+    lv_obj_t* dec_btn = lv_btn_create(parent);
+    lv_obj_set_size(dec_btn, 32, 20);
     lv_obj_add_style(dec_btn, &style_move_default, 0);
     lv_obj_t* dec_lbl = lv_label_create(dec_btn);
     lv_label_set_text(dec_lbl, "-");
@@ -266,9 +251,18 @@ static void add_speed_control(lv_obj_t* parent, const char* label, int32_t* valu
     lv_obj_add_event_cb(dec_btn, speed_dec_btn_event_cb, LV_EVENT_CLICKED, min_ptr);
     lv_obj_set_user_data(dec_btn, value);
 
-    // Increment button
-    lv_obj_t* inc_btn = lv_btn_create(block);
-    lv_obj_set_size(inc_btn, 32, 28);
+    // Value label (center)
+    lv_obj_t* val_lbl = lv_label_create(parent);
+    char val_buf[16];
+    snprintf(val_buf, sizeof(val_buf), "%d", *value);
+    lv_label_set_text(val_lbl, val_buf);
+    lv_obj_set_style_text_color(val_lbl, lv_color_hex(0xFFFF00), 0);
+    lv_obj_set_style_text_font(val_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_align(val_lbl, LV_ALIGN_TOP_MID, 40, 0);
+
+    // Increment button (right)
+    lv_obj_t* inc_btn = lv_btn_create(parent);
+    lv_obj_set_size(inc_btn, 32, 20);
     lv_obj_add_style(inc_btn, &style_move_default, 0);
     lv_obj_t* inc_lbl = lv_label_create(inc_btn);
     lv_label_set_text(inc_lbl, "+");
@@ -279,21 +273,133 @@ static void add_speed_control(lv_obj_t* parent, const char* label, int32_t* valu
 }
 
 // Single definition at file scope
-void create_speed_delay_controls() {
-    // Container for speed controls
-    lv_obj_t* speed_cont = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(speed_cont, MESSAGE_BOX_WIDTH, 90);
-    lv_obj_set_pos(speed_cont, RX_MESSAGE_BOX_X, RX_MESSAGE_BOX_Y + MESSAGE_BOX_HEIGHT + 10);
-    lv_obj_set_style_bg_color(speed_cont, lv_color_hex(0x222244), 0);
-    lv_obj_set_style_bg_opa(speed_cont, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(speed_cont, 8, 0);
-    lv_obj_set_flex_flow(speed_cont, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(speed_cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+static void create_speed_delay_controls_impl() {
+    // Add each speed control directly to the screen, smaller size
+    int base_x = RX_MESSAGE_BOX_X;
+    int base_y = RX_MESSAGE_BOX_Y + MESSAGE_BOX_HEIGHT + 10;
+    int control_w = POSITION_BOX_WIDTH;
+    int control_h = 20;
+    int gap_x = 8;
+    int gap_y = 5;
 
-    add_speed_control(speed_cont, "Slow", &slow_speed_pulse_delay, 100, 5000);
-    add_speed_control(speed_cont, "Medium", &medium_speed_pulse_delay, 50, 2000);
-    add_speed_control(speed_cont, "Fast", &fast_speed_pulse_delay, 10, 1000);
-    add_speed_control(speed_cont, "MoveTo", &move_to_pulse_delay, 50, 3000);
+    // Arrange controls in 2 rows of 2, centered below RX message box, using containers
+    int num_controls = 4;
+    int container_w = 180; // Wider for all elements
+    int container_h = 31;
+  
+    int total_height = num_controls * container_h + (num_controls - 1) * gap_y;
+    int start_x = base_x + (MESSAGE_BOX_WIDTH - container_w) / 2;
+    // Determine start_y dynamically from the actual RX message box position
+    int start_y = base_y; // fallback
+    if (rx_message_box) {
+        // Query LVGL for the RX box geometry; sometimes layout isn't applied yet
+        int rx_y = lv_obj_get_y(rx_message_box);
+        int rx_h = lv_obj_get_height(rx_message_box);
+        Serial.printf("DEBUG: rx_message_box ptr=%p rx_y=%d rx_h=%d\n", rx_message_box, rx_y, rx_h);
+        if (rx_h > 8) {
+            start_y = rx_y + rx_h + 5; // 5px below RX message box bottom
+        } else {
+            // Fallback to the constant-based calculation if geometry seems invalid
+            start_y = RX_MESSAGE_BOX_Y + 52 + 5;
+            Serial.printf("DEBUG: using fallback start_y=%d\n", start_y);
+        }
+    } else {
+        start_y = RX_MESSAGE_BOX_Y + 52 + 5;
+        Serial.println("DEBUG: rx_message_box is NULL, using fallback start_y");
+    }
+
+    lv_obj_t* prev_cont = NULL;
+    auto add_speed_control_grouped = [&](const char* label, int32_t* value, int min, int max, int idx) {
+        lv_obj_t* parent = lv_scr_act();
+        lv_obj_t* cont = lv_obj_create(parent);
+        lv_obj_set_size(cont, container_w, container_h);
+        // Position relative to rx_message_box when possible
+        if (rx_message_box && lv_obj_is_valid(rx_message_box)) {
+            if (!prev_cont) {
+                // Align first control to bottom-left of RX box, offset to start_x
+                int x_ofs = start_x - RX_MESSAGE_BOX_X;
+                lv_obj_align_to(cont, rx_message_box, LV_ALIGN_OUT_BOTTOM_LEFT, x_ofs, 5);
+            } else {
+                // Stack below previous control
+                lv_obj_align_to(cont, prev_cont, LV_ALIGN_OUT_BOTTOM_LEFT, 0, gap_y);
+            }
+        } else {
+            int x = start_x;
+            int y = start_y + idx * (container_h + gap_y);
+            lv_obj_set_pos(cont, x, y);
+        }
+        lv_obj_set_style_bg_opa(cont, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(cont, lv_color_hex(0x1E3A8A), 0); // blue
+        lv_obj_set_style_border_width(cont, 2, 0);
+        lv_obj_set_style_border_color(cont, lv_color_hex(0xFFFFFF), 0); // white border
+        lv_obj_set_style_pad_all(cont, 2, 0);
+        // Create label, minus, value, plus horizontally in the container
+        lv_obj_t* lbl = lv_label_create(cont);
+        lv_label_set_text(lbl, label);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 2, 0);
+
+        lv_obj_t* dec_btn = lv_btn_create(cont);
+        lv_obj_set_size(dec_btn, 24, 24);
+        lv_obj_add_style(dec_btn, &style_move_default, 0);
+        lv_obj_t* dec_lbl = lv_label_create(dec_btn);
+        lv_label_set_text(dec_lbl, "-");
+        lv_obj_center(dec_lbl);
+        int* min_ptr = new int(min);
+        lv_obj_add_event_cb(dec_btn, speed_dec_btn_event_cb, LV_EVENT_CLICKED, min_ptr);
+        lv_obj_set_user_data(dec_btn, value);
+        lv_obj_align(dec_btn, LV_ALIGN_LEFT_MID, 70, 0);
+
+        lv_obj_t* val_lbl = lv_label_create(cont);
+        char val_buf[16];
+        snprintf(val_buf, sizeof(val_buf), "%d", *value);
+        lv_label_set_text(val_lbl, val_buf);
+        lv_obj_set_style_text_color(val_lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(val_lbl, &lv_font_montserrat_14, 0);
+        lv_obj_align(val_lbl, LV_ALIGN_LEFT_MID, 105, 0);
+
+        lv_obj_t* inc_btn = lv_btn_create(cont);
+        lv_obj_set_size(inc_btn, 24, 24);
+        lv_obj_add_style(inc_btn, &style_move_default, 0);
+        lv_obj_t* inc_lbl = lv_label_create(inc_btn);
+        lv_label_set_text(inc_lbl, "+");
+        lv_obj_center(inc_lbl);
+        int* max_ptr = new int(max);
+        lv_obj_add_event_cb(inc_btn, speed_inc_btn_event_cb, LV_EVENT_CLICKED, max_ptr);
+        lv_obj_set_user_data(inc_btn, value);
+        lv_obj_align(inc_btn, LV_ALIGN_LEFT_MID, 135, 0);
+        // Remember this container so the next one can be aligned below it
+        prev_cont = cont;
+        Serial.printf("DEBUG: created speed control '%s' at cont=%p\n", label, cont);
+    };
+
+    add_speed_control_grouped("Slow", &slow_speed_pulse_delay, 100, 5000, 0);
+    add_speed_control_grouped("Medium", &medium_speed_pulse_delay, 50, 2000, 1);
+    add_speed_control_grouped("Fast", &fast_speed_pulse_delay, 10, 1000, 2);
+    add_speed_control_grouped("MoveTo", &move_to_pulse_delay, 50, 3000, 3);
+}
+
+// Timer callback to retry creation when LVGL has finished layout
+static void speed_controls_timer_cb(lv_timer_t* t) {
+    if (rx_message_box && lv_obj_is_valid(rx_message_box) && lv_obj_get_height(rx_message_box) > 8) {
+        create_speed_delay_controls_impl();
+        lv_timer_del(t);
+    } else {
+        // keep trying; let the timer run again
+        Serial.println("DEBUG: speed_controls_timer_cb - RX box still not ready, will retry");
+    }
+}
+
+void create_speed_delay_controls() {
+    // Try immediate creation if RX message box has valid geometry
+    if (rx_message_box && lv_obj_is_valid(rx_message_box) && lv_obj_get_height(rx_message_box) > 8) {
+        create_speed_delay_controls_impl();
+    } else {
+        Serial.println("DEBUG: create_speed_delay_controls - scheduling timer to create controls");
+        // Schedule a timer to retry after 50 ms
+        lv_timer_create(speed_controls_timer_cb, 50, NULL);
+    }
 }
 
 static void add_tx_message(const char* message) {
@@ -1428,41 +1534,30 @@ void create_message_boxes() {
 
     // TX Message Box (Data sent to StepperController) - Using simple label
     tx_message_box = lv_label_create(lv_scr_act());
-    lv_obj_set_size(tx_message_box, MESSAGE_BOX_WIDTH, MESSAGE_BOX_HEIGHT);
+    lv_obj_set_size(tx_message_box, MESSAGE_BOX_WIDTH, 52); // Fits 4 lines of text with minimal padding
     lv_obj_set_pos(tx_message_box, TX_MESSAGE_BOX_X, TX_MESSAGE_BOX_Y);
-    lv_label_set_text(tx_message_box, "TX: Ready");
+    lv_label_set_text(tx_message_box, "");
     lv_label_set_long_mode(tx_message_box, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_bg_opa(tx_message_box, LV_OPA_COVER,
-                            0); // Solid background
-    lv_obj_set_style_bg_color(tx_message_box, lv_color_hex(0x000080),
-                              0); // Dark blue
-    lv_obj_set_style_text_color(tx_message_box, lv_color_hex(0xFFFFFF),
-                                0); // White text
-    lv_obj_set_style_border_color(tx_message_box, lv_color_hex(0x0000FF),
-                                  0); // Blue border
+    lv_obj_set_style_bg_opa(tx_message_box, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(tx_message_box, lv_color_hex(0x000080), 0);
+    lv_obj_set_style_text_color(tx_message_box, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_color(tx_message_box, lv_color_hex(0x0000FF), 0);
     lv_obj_set_style_border_width(tx_message_box, 2, 0);
-    lv_obj_set_style_pad_all(tx_message_box, 3, 0); // Small padding
-    lv_obj_set_style_text_font(tx_message_box, &lv_font_montserrat_10,
-                               0); // Small Montserrat font
+    lv_obj_set_style_pad_all(tx_message_box, 2, 0);
+    lv_obj_set_style_text_font(tx_message_box, &lv_font_montserrat_10, 0); // Smaller font for compact display
 
-    // RX Message Box (Data received by StepperGUI) - Below TX box
     rx_message_box = lv_label_create(lv_scr_act());
-    lv_obj_set_size(rx_message_box, MESSAGE_BOX_WIDTH, MESSAGE_BOX_HEIGHT);
-    lv_obj_set_pos(rx_message_box, RX_MESSAGE_BOX_X, RX_MESSAGE_BOX_Y);
-    lv_label_set_text(rx_message_box, "RX: Ready");
+    lv_obj_set_size(rx_message_box, MESSAGE_BOX_WIDTH, 52); // Fits 4 lines of text with minimal padding
+    lv_obj_set_pos(rx_message_box, RX_MESSAGE_BOX_X, TX_MESSAGE_BOX_Y + 52 + 5);
+    lv_label_set_text(rx_message_box, "");
     lv_label_set_long_mode(rx_message_box, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_bg_opa(rx_message_box, LV_OPA_COVER,
-                            0); // Solid background
-    lv_obj_set_style_bg_color(rx_message_box, lv_color_hex(0x008000),
-                              0); // Dark green
-    lv_obj_set_style_text_color(rx_message_box, lv_color_hex(0xFFFFFF),
-                                0); // White text
-    lv_obj_set_style_border_color(rx_message_box, lv_color_hex(0x00FF00),
-                                  0); // Green border
+    lv_obj_set_style_bg_opa(rx_message_box, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(rx_message_box, lv_color_hex(0x000080), 0); // Same as TX
+    lv_obj_set_style_text_color(rx_message_box, lv_color_hex(0xFFFFFF), 0); // Same as TX
+    lv_obj_set_style_border_color(rx_message_box, lv_color_hex(0x0000FF), 0); // Same as TX
     lv_obj_set_style_border_width(rx_message_box, 2, 0);
-    lv_obj_set_style_pad_all(rx_message_box, 3, 0); // Small padding
-    lv_obj_set_style_text_font(rx_message_box, &lv_font_montserrat_10,
-                               0); // Small Montserrat font
+    lv_obj_set_style_pad_all(rx_message_box, 2, 0);
+    lv_obj_set_style_text_font(rx_message_box, &lv_font_montserrat_10, 0);
 
     Serial.println("Message boxes created successfully using labels");
 }
@@ -1783,8 +1878,9 @@ void loop() {
     if (tx_message_update_pending && tx_message_box) {
         tx_message_update_pending = false;
         static char tx_display[500];
-        strcpy(tx_display, "TX:\n");
+        tx_display[0] = '\0';
         for (int i = 0; i < tx_message_count; i++) {
+            strcat(tx_display, "TX: ");
             strcat(tx_display, tx_messages[i]);
             if (i < tx_message_count - 1)
                 strcat(tx_display, "\n");
@@ -1795,8 +1891,9 @@ void loop() {
     if (rx_message_update_pending && rx_message_box) {
         rx_message_update_pending = false;
         static char rx_display[500];
-        strcpy(rx_display, "RX:\n");
+        rx_display[0] = '\0';
         for (int i = 0; i < rx_message_count; i++) {
+            strcat(rx_display, "RX: ");
             strcat(rx_display, rx_messages[i]);
             if (i < rx_message_count - 1)
                 strcat(rx_display, "\n");
