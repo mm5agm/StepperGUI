@@ -43,5 +43,5 @@ REM Return to main project directory
 cd ..
 
 echo.
-echo Upload script complete.
+echo Upload script complete. All done.
 pause
