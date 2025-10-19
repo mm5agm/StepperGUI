@@ -14,9 +14,18 @@
 #include <esp_task_wdt.h>
 #include <esp_wifi.h>
 #include <lvgl.h>
+#include "fsm/stepper_gui_fsm.hpp"
 // Preferences API for persistent storage
 #include <Preferences.h>
 static Preferences preferences;
+
+
+// FSM instance (single global, globally visible)
+static fsm::StepperGuiFsm g_fsm;
+
+// FSM send callback: sends correct command for each button (slow, medium, fast, up/down)
+
+
 
 
 
@@ -261,62 +270,22 @@ static void add_rx_message(const char* message);
 static uint8_t next_message_id = 1;
 // Function definitions (move any misplaced ones here)
 // Helper function for speed control blocks (single definition at file scope)
-static void add_speed_control(lv_obj_t* parent, const char* label, int32_t* value, int min, int max) {
-    // Label (above the control, centered on parent)
-    lv_obj_t* lbl = lv_label_create(parent);
-    lv_label_set_text(lbl, label);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-    lv_obj_align(lbl, LV_ALIGN_TOP_MID, 0, 0);
-
-    // Decrement button (left)
-    lv_obj_t* dec_btn = lv_btn_create(parent);
-    lv_obj_set_size(dec_btn, 32, 20);
-    lv_obj_add_style(dec_btn, &style_move_default, 0);
-    lv_obj_t* dec_lbl = lv_label_create(dec_btn);
-    lv_label_set_text(dec_lbl, "-");
-    lv_obj_center(dec_lbl);
-    int* min_ptr = new int(min);
-    lv_obj_add_event_cb(dec_btn, speed_dec_btn_event_cb, LV_EVENT_CLICKED, min_ptr);
-    lv_obj_set_user_data(dec_btn, value);
-
-    // Value label (center)
-    lv_obj_t* val_lbl = lv_label_create(parent);
-    char val_buf[16];
-    snprintf(val_buf, sizeof(val_buf), "%d", *value);
-    lv_label_set_text(val_lbl, val_buf);
-    lv_obj_set_style_text_color(val_lbl, lv_color_hex(0xFFFF00), 0);
-    lv_obj_set_style_text_font(val_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_align(val_lbl, LV_ALIGN_TOP_MID, 40, 0);
-
-    // Increment button (right)
-    lv_obj_t* inc_btn = lv_btn_create(parent);
-    lv_obj_set_size(inc_btn, 32, 20);
-    lv_obj_add_style(inc_btn, &style_move_default, 0);
-    lv_obj_t* inc_lbl = lv_label_create(inc_btn);
-    lv_label_set_text(inc_lbl, "+");
-    lv_obj_center(inc_lbl);
-    int* max_ptr = new int(max);
-    lv_obj_add_event_cb(inc_btn, speed_inc_btn_event_cb, LV_EVENT_CLICKED, max_ptr);
-    lv_obj_set_user_data(inc_btn, value);
-}
+// Removed unused function: add_speed_control
 
 // Single definition at file scope
 static void create_speed_delay_controls_impl() {
     // Add each speed control directly to the screen, smaller size
     int base_x = RX_MESSAGE_BOX_X;
     int base_y = RX_MESSAGE_BOX_Y + MESSAGE_BOX_HEIGHT + 10;
-    int control_w = POSITION_BOX_WIDTH;
-    int control_h = 20;
-    int gap_x = 8;
+    // Removed unused variables: control_w, control_h, gap_x
     int gap_y = 5;
 
     // Arrange controls in 2 rows of 2, centered below RX message box, using containers
-    int num_controls = 4;
+    // Removed unused variable: num_controls
     int container_w = 180; // Wider for all elements
     int container_h = 31;
   
-    int total_height = num_controls * container_h + (num_controls - 1) * gap_y;
+    // Removed unused variable: total_height
     int start_x = base_x + (MESSAGE_BOX_WIDTH - container_w) / 2;
     // Determine start_y dynamically from the actual RX message box position
     int start_y = base_y; // fallback
@@ -488,6 +457,7 @@ void create_speed_delay_controls() {
 static void add_tx_message(const char* message) {
     // Store message in circular buffer for scrolling history (interrupt-safe)
     if (message && strlen(message) < sizeof(tx_messages[0])) {
+        Serial.printf("add_tx_message called: %s\n", message);
         // Shift messages up (oldest falls off)
         for (int i = MAX_MESSAGES - 1; i > 0; i--) {
             strcpy(tx_messages[i], tx_messages[i - 1]);
@@ -499,12 +469,18 @@ static void add_tx_message(const char* message) {
 
         // LVGL is not interrupt-safe - must use deferred updates
         tx_message_update_pending = true;
+        Serial.printf("tx_message_update_pending set TRUE\n");
+        // Trigger FSM UI callback by pushing a dummy event
+        fsm::Event ev{};
+        ev.type = fsm::EventType::TIMEOUT; // Use a harmless event
+        g_fsm.push_event(ev);
     }
 }
 
 static void add_rx_message(const char* message) {
     // Store message in circular buffer for scrolling history (interrupt-safe)
     if (message && strlen(message) < sizeof(rx_messages[0])) {
+        Serial.printf("add_rx_message called: %s\n", message);
         // Shift messages up (oldest falls off)
         for (int i = MAX_MESSAGES - 1; i > 0; i--) {
             strcpy(rx_messages[i], rx_messages[i - 1]);
@@ -516,6 +492,11 @@ static void add_rx_message(const char* message) {
 
         // LVGL is not interrupt-safe - must use deferred updates
         rx_message_update_pending = true;
+        Serial.printf("rx_message_update_pending set TRUE\n");
+        // Trigger FSM UI callback by pushing a dummy event
+        fsm::Event ev{};
+        ev.type = fsm::EventType::TIMEOUT; // Use a harmless event
+        g_fsm.push_event(ev);
     }
 }
 
@@ -527,6 +508,11 @@ static bool send_message_to_controller(CommandType cmd, int32_t param = STEPPER_
     msg.messageId = next_message_id++;
     msg.command = cmd;
     msg.param = param;
+    Serial.println("--- [SENT CMD] StepperController ---");
+    Serial.printf("  [SENT CMD] Command: %s (%u)\n", cmd_to_str(cmd), (unsigned)cmd);
+    Serial.printf("  [SENT CMD] Param:   %ld\n", (long)param);
+    Serial.printf("  [SENT CMD] Msg ID:  %u\n", (unsigned)msg.messageId);
+    Serial.println("------------------------------------");
     esp_err_t res = esp_now_send(controller_mac, (uint8_t*)&msg, sizeof(msg));
     if (res != ESP_OK) {
         Serial.printf("TX FAILED: %s (cmd=%s)\n", esp_err_to_name(res), cmd_to_str(cmd));
@@ -541,11 +527,70 @@ static bool send_message_to_controller(CommandType cmd, int32_t param = STEPPER_
     return true;
 }
 
+// Helper function to send correct command for each button (slow, medium, fast, up/down)
+static void send_move_command(fsm::EventType type, int speed) {
+    CommandType cmd = CMD_STOP;
+    switch (type) {
+        case fsm::EventType::BTN_MOVE_UP:
+            switch (speed) {
+                case 0: cmd = CMD_UP_SLOW; break;
+                case 1: cmd = CMD_UP_MEDIUM; break;
+                case 2: cmd = CMD_UP_FAST; break;
+                default: cmd = CMD_UP_FAST; break;
+            }
+            break;
+        case fsm::EventType::BTN_MOVE_DOWN:
+            switch (speed) {
+                case 0: cmd = CMD_DOWN_SLOW; break;
+                case 1: cmd = CMD_DOWN_MEDIUM; break;
+                case 2: cmd = CMD_DOWN_FAST; break;
+                default: cmd = CMD_DOWN_FAST; break;
+            }
+            break;
+        case fsm::EventType::BTN_STOP:
+            cmd = CMD_STOP;
+            break;
+        default:
+            cmd = CMD_STOP;
+            break;
+    }
+    send_message_to_controller(cmd, STEPPER_PARAM_UNUSED);
+}
+
 
 void on_data_recv(const uint8_t* mac, const uint8_t* data, int len) {
     if (mac) {
         Serial.printf("GUI onDataRecv from %02X:%02X:%02X:%02X:%02X:%02X\n",
                       mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+
+    Serial.printf("on_data_recv: len=%d\n", len);
+    if (!data || len < (int)sizeof(Message)) {
+        Serial.printf("GUI onDataRecv: bad len %d\n", len);
+        return;
+    }
+
+    Message msg;
+    memcpy(&msg, data, sizeof(msg));
+
+    Serial.println("--- [RECV CMD] StepperController ---");
+    Serial.printf("  [RECV CMD] Command: %s (%u)\n", cmd_to_str((CommandType)msg.command), (unsigned)msg.command);
+    Serial.printf("  [RECV CMD] Param:   %ld\n", (long)msg.param);
+    Serial.printf("  [RECV CMD] Msg ID:  %u\n", (unsigned)msg.messageId);
+    Serial.println("----------------------------------------");
+
+    // Add to GUI message box
+    char rx_msg[64];
+    snprintf(rx_msg, sizeof(rx_msg), "%s p=%ld id=%u",
+             cmd_to_str((CommandType)msg.command), (long)msg.param,
+             (unsigned)msg.messageId);
+    add_rx_message(rx_msg);
+
+    // Debug: Track position commands specifically
+    if (msg.command == CMD_POSITION) {
+        Serial.printf("*** POSITION MESSAGE: RX box shows p=%ld, setting "
+                      "pending_position=%ld ***\n",
+                      (long)msg.param, (long)msg.param);
     }
 
     // Any successful ESP-NOW message indicates good link quality
@@ -568,31 +613,6 @@ void on_data_recv(const uint8_t* mac, const uint8_t* data, int len) {
                       last_rssi);
     } else {
         Serial.println("RSSI update blocked - signal forced offline");
-    }
-
-    if (!data || len < (int)sizeof(Message)) {
-        Serial.printf("GUI onDataRecv: bad len %d\n", len);
-        return;
-    }
-
-    Message msg;
-    memcpy(&msg, data, sizeof(msg));
-
-    Serial.printf("RX: cmd=%u param=%ld id=%u\n", (unsigned)msg.command,
-                  (long)msg.param, (unsigned)msg.messageId);
-
-    // Add to GUI message box
-    char rx_msg[64];
-    snprintf(rx_msg, sizeof(rx_msg), "%s p=%ld id=%u",
-             cmd_to_str((CommandType)msg.command), (long)msg.param,
-             (unsigned)msg.messageId);
-    add_rx_message(rx_msg);
-
-    // Debug: Track position commands specifically
-    if (msg.command == CMD_POSITION) {
-        Serial.printf("*** POSITION MESSAGE: RX box shows p=%ld, setting "
-                      "pending_position=%ld ***\n",
-                      (long)msg.param, (long)msg.param);
     }
 
     switch (msg.command) {
@@ -673,11 +693,8 @@ void on_data_sent(const uint8_t* mac, esp_now_send_status_t status) {
 
 void send_message(CommandType cmd, int param = STEPPER_PARAM_UNUSED,
                   int messageId = 0) {
-    Message msg;
-    msg.messageId = messageId;
-    msg.command = cmd;
-    msg.param = param;
-    esp_now_send(controller_mac, (uint8_t*)&msg, sizeof(msg));
+    // Route all outgoing messages through send_message_to_controller for proper labeling
+    send_message_to_controller(cmd, param);
 }
 
 // ===== Move Button Struct & Data =====
@@ -823,17 +840,41 @@ static void move_btn_event_cb(lv_event_t* e) {
         }
     }
 
-    if (!btn || !mb)
+    if (!btn || !mb) {
+        Serial.println("move_btn_event_cb: btn or mb is NULL");
         return;
+    }
+
+    Serial.printf("move_btn_event_cb: code=%d, command=%s\n", (int)code, cmd_to_str(mb->command));
 
     if (code == LV_EVENT_PRESSED) {
-        Serial.printf("%s\n", cmd_to_str(mb->command));
-        send_message_to_controller(mb->command);
-    } else if (code == LV_EVENT_RELEASED) {
-        Serial.println("Stop");
-        send_message_to_controller(CMD_STOP);
-    } else if (code == LV_EVENT_PRESS_LOST) {
-        send_message_to_controller(CMD_STOP);
+        Serial.printf("Move button pressed: %s\n", cmd_to_str(mb->command));
+        int speed = 2; // Default to fast
+        switch (mb->command) {
+            case CMD_UP_SLOW: speed = 0; break;
+            case CMD_UP_MEDIUM: speed = 1; break;
+            case CMD_UP_FAST: speed = 2; break;
+            case CMD_DOWN_SLOW: speed = 0; break;
+            case CMD_DOWN_MEDIUM: speed = 1; break;
+            case CMD_DOWN_FAST: speed = 2; break;
+            default: speed = 2; break;
+        }
+        if (mb->command == CMD_UP_SLOW || mb->command == CMD_UP_MEDIUM || mb->command == CMD_UP_FAST) {
+            send_move_command(fsm::EventType::BTN_MOVE_UP, speed);
+        } else if (mb->command == CMD_DOWN_SLOW || mb->command == CMD_DOWN_MEDIUM || mb->command == CMD_DOWN_FAST) {
+            send_move_command(fsm::EventType::BTN_MOVE_DOWN, speed);
+        } else if (mb->command == CMD_MOVE_TO) {
+            // Always push FSM event for MOVE_TO so [SENT CMD] is guaranteed
+            fsm::Event ev{};
+            ev.type = fsm::EventType::BTN_MOVE_TO;
+            ev.int_arg = current_stepper_position;
+            g_fsm.push_event(ev);
+        } else {
+            send_move_command(fsm::EventType::BTN_STOP, 2);
+        }
+    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        Serial.println("Move button released: STOP");
+        send_move_command(fsm::EventType::BTN_STOP, 2);
     }
 }
 
@@ -1153,26 +1194,30 @@ static void change_band_mode(int band_index, int mode_index) {
             band_buttons[band_index].label, mode_buttons[mode_index].label,
             (int)stored_position);
 
-        // Send move command to stepper to go to stored position
-        send_message_to_controller(CMD_MOVE_TO, stored_position);
+        // DEBUG: About to push FSM BTN_MOVE_TO event
+        Serial.printf("[DEBUG] change_band_mode: pushing FSM BTN_MOVE_TO event with position %d\n", (int)stored_position);
+        // Route MOVE_TO through FSM event for [SENT CMD] output
+        fsm::Event ev{};
+        ev.type = fsm::EventType::BTN_MOVE_TO;
+        ev.int_arg = stored_position;
+        g_fsm.push_event(ev);
+    // DEBUG: send_message_to_controller called
+   // Serial.printf("[DEBUG] send_message_to_controller: cmd=%s param=%ld\n", cmd_to_str(cmd), (long)param);
 
-        // Update current position immediately (will be confirmed when stepper
-        // responds)
+        // Update current position immediately (will be confirmed when stepper responds)
         stored_position = clamp_position(stored_position);
         current_stepper_position = stored_position;
         positionArray[0][3] = stored_position;
         update_position_display(stored_position);
 
-        // Always save the state change for startup restoration (regardless of
-        // autosave setting)
+        // Always save the state change for startup restoration (regardless of autosave setting)
         preferences.begin(PREFS_NAMESPACE, false);
         preferences.putInt("pos_0_0", band_index);          // last_band
         preferences.putInt("pos_0_1", mode_index);          // last_mode
         preferences.putInt("pos_0_2", autosave_on ? 1 : 0); // autosave
         preferences.putInt("pos_0_3", stored_position);     // current_position
         preferences.end();
-        Serial.println(
-            "Band/Mode state saved to preferences for startup restoration");
+        Serial.println("Band/Mode state saved to preferences for startup restoration");
 
         // If autosave is on, also save the full position array
         if (autosave_on) {
@@ -1322,9 +1367,13 @@ static void speed_dec_btn_event_cb(lv_event_t* e) {
             preferences.end();
             Serial.printf("Saved immediately: %s -> %d (verified=%d)\n", d->pref_key, (int)*(d->value), verify);
         }
-        // notify controller
-        send_message_to_controller(d->controller_cmd, *(d->value));
-        Serial.printf("Speed dec: %s -> %d\n", d->pref_key ? d->pref_key : "?", (int)*(d->value));
+        // notify FSM
+        fsm::Event ev{};
+        // Map speed control to a generic event (customize as needed)
+        ev.type = fsm::EventType::BTN_MOVE_TO;
+        ev.int_arg = *(d->value);
+        g_fsm.push_event(ev);
+        Serial.printf("Speed dec (FSM): %s -> %d\n", d->pref_key ? d->pref_key : "?", (int)*(d->value));
     }
 }
 
@@ -1349,9 +1398,13 @@ static void speed_inc_btn_event_cb(lv_event_t* e) {
             preferences.end();
             Serial.printf("Saved immediately: %s -> %d (verified=%d)\n", d->pref_key, (int)*(d->value), verify);
         }
-        // notify controller
-        send_message_to_controller(d->controller_cmd, *(d->value));
-        Serial.printf("Speed inc: %s -> %d\n", d->pref_key ? d->pref_key : "?", (int)*(d->value));
+        // notify FSM
+        fsm::Event ev{};
+        // Map speed control to a generic event (customize as needed)
+        ev.type = fsm::EventType::BTN_MOVE_TO;
+        ev.int_arg = *(d->value);
+        g_fsm.push_event(ev);
+        Serial.printf("Speed inc (FSM): %s -> %d\n", d->pref_key ? d->pref_key : "?", (int)*(d->value));
     }
 }
 
@@ -1544,9 +1597,11 @@ static void autosave_toggle_cb(lv_event_t* e) {
 static void power_btn_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED) {
-        Serial.println("Sending CMD_RESET to StepperController...");
-        send_message_to_controller(CMD_RESET);
-        Serial.println("Reset command sent. Waiting for controller to restart and send reset back...");
+        Serial.println("Sending RESET event to FSM...");
+        fsm::Event ev{};
+        ev.type = fsm::EventType::BTN_RESET;
+        g_fsm.push_event(ev);
+        Serial.println("Reset event sent to FSM. Waiting for controller to restart and send reset back...");
     } else if (code == LV_EVENT_LONG_PRESSED) {
         Serial.println("Power button long-press detected: performing hard reset of pulse-delay defaults (persist)...");
         hard_reset_pulse_delays(true);
@@ -1936,7 +1991,10 @@ void display_touch_init() {
     lv_indev_set_read_cb(indev, my_touchpad_read);
 }
 
+
+// FSM instance (single global, globally visible)
 // ===== Arduino Setup & Loop =====
+
 void setup() {
     Serial.begin(115200);
     delay(300);
@@ -1967,44 +2025,112 @@ void setup() {
     build_ui();
     Serial.println("UI built successfully");
 
+
+    Serial.println("[DEBUG] Setting WiFi to STA mode...");
     WiFi.mode(WIFI_STA);
+    Serial.println("[DEBUG] WiFi STA mode set");
+    Serial.println("[DEBUG] Initializing ESP-NOW...");
     if (esp_now_init() != ESP_OK) {
-        Serial.println("ESP-NOW init failed!");
+        Serial.println("[ERROR] ESP-NOW init failed!");
         while (1)
             ;
     }
+    Serial.println("[DEBUG] ESP-NOW initialized");
 
-    Serial.print("My MAC address is ");
+    Serial.print("[DEBUG] My MAC address is ");
     Serial.println(WiFi.macAddress());
 
+    Serial.println("[DEBUG] Registering ESP-NOW recv callback...");
     esp_now_register_recv_cb(on_data_recv);
+    Serial.println("[DEBUG] ESP-NOW recv callback registered");
+    Serial.println("[DEBUG] Registering ESP-NOW send callback...");
     esp_now_register_send_cb(on_data_sent);
+    Serial.println("[DEBUG] ESP-NOW send callback registered");
 
     // Initialize ESP-NOW peer info structure completely
+    Serial.println("[DEBUG] Initializing ESP-NOW peer info...");
     memset(&peer_info, 0, sizeof(esp_now_peer_info_t));
     memcpy(peer_info.peer_addr, controller_mac, 6);
     peer_info.channel = 0;
     peer_info.ifidx = WIFI_IF_STA;
     peer_info.encrypt = false;
 
+    Serial.println("[DEBUG] Deleting existing ESP-NOW peer (if any)...");
+    esp_now_del_peer(controller_mac); // Ignore result, just ensure clean state
+    Serial.println("[DEBUG] Adding ESP-NOW peer...");
     if (esp_now_add_peer(&peer_info) != ESP_OK) {
-        Serial.println("Failed to add peer");
+        Serial.println("[ERROR] Failed to add ESP-NOW peer!");
+    } else {
+        Serial.println("[DEBUG] ESP-NOW peer added");
     }
 
-    // Move stepper to saved position on startup
-    Serial.printf("Moving to startup position: %d for %s/%s\n",
+    // Move stepper to saved position on startup via FSM
+    Serial.printf("Moving to startup position: %d for %s/%s (FSM)\n",
                   (int)current_stepper_position,
                   band_buttons[current_band_index].label,
                   mode_buttons[current_mode_index].label);
-    send_message_to_controller(CMD_MOVE_TO, current_stepper_position);
+    fsm::Event ev{};
+    ev.type = fsm::EventType::BTN_MOVE_TO;
+    ev.int_arg = current_stepper_position;
+    g_fsm.push_event(ev);
 
     Serial.println("Setup done");
+
+    // Initialize FSM: provide send command and UI update callbacks
+    g_fsm.begin(
+        // send callback - always print [SENT CMD] and map all movement types
+        [](const char* cmd, int32_t arg) {
+            if (strcmp(cmd, "MOVE_TO") == 0) {
+                send_message_to_controller(CMD_MOVE_TO, arg);
+            } else if (strcmp(cmd, "MOVE_UP") == 0) {
+                send_message_to_controller(CMD_UP_FAST);
+            } else if (strcmp(cmd, "MOVE_DOWN") == 0) {
+                send_message_to_controller(CMD_DOWN_FAST);
+            } else if (strcmp(cmd, "STOP") == 0) {
+                send_message_to_controller(CMD_STOP);
+            } else {
+                // fallback for unknown commands
+                Serial.printf("[SENT CMD] Unknown FSM command: %s %ld\n", cmd, (long)arg);
+            }
+        },
+        // UI update callback - update UI based on FSM state
+        [](fsm::State s) {
+            Serial.printf("FSM state -> %d\n", (int)s);
+            switch (s) {
+                case fsm::State::IDLE:
+                    update_position_display(current_stepper_position);
+                    break;
+                case fsm::State::MOVING_UP:
+                case fsm::State::MOVING_DOWN:
+                case fsm::State::MOVING_TO:
+                    // Show moving indicator (customize as needed)
+                    break;
+                case fsm::State::RESETTING:
+                    // Show resetting indicator (customize as needed)
+                    break;
+                case fsm::State::ERROR:
+                    // Show error indicator (customize as needed)
+                    break;
+                default:
+                    break;
+            }
+        });
+
+    // Push a small test event so FSM is exercised at startup
+    // Push a small test event so FSM is exercised at startup
+    fsm::Event startup_ev{};
+    startup_ev.type = fsm::EventType::BTN_MOVE_TO;
+    startup_ev.int_arg = current_stepper_position; // target position
+    g_fsm.push_event(startup_ev);
 }
 
 
 void loop() {
     // Feed watchdog timer first to prevent timeout
     esp_task_wdt_reset();
+
+    // Process FSM events (guarantees MOVE_TO and all events are handled)
+    g_fsm.tick();
 
     // Handle deferred position updates from ESP-NOW interrupt
     if (position_update_pending) {
@@ -2030,30 +2156,42 @@ void loop() {
 
     // Handle deferred message box updates immediately (safe in main loop
     // context)
-    if (tx_message_update_pending && tx_message_box) {
-        tx_message_update_pending = false;
-        static char tx_display[500];
-        tx_display[0] = '\0';
-        for (int i = 0; i < tx_message_count; i++) {
-            strcat(tx_display, "TX: ");
-            strcat(tx_display, tx_messages[i]);
-            if (i < tx_message_count - 1)
-                strcat(tx_display, "\n");
+    if (tx_message_update_pending) {
+        Serial.printf("loop: tx_message_update_pending TRUE, tx_message_box=%p\n", tx_message_box);
+        if (tx_message_box && lv_obj_is_valid(tx_message_box)) {
+            tx_message_update_pending = false;
+            static char tx_display[500];
+            tx_display[0] = '\0';
+            for (int i = 0; i < tx_message_count; i++) {
+                strcat(tx_display, "TX: ");
+                strcat(tx_display, tx_messages[i]);
+                if (i < tx_message_count - 1)
+                    strcat(tx_display, "\n");
+            }
+            lv_label_set_text(tx_message_box, tx_display);
+            Serial.printf("loop: TX message box updated\n");
+        } else {
+            Serial.printf("loop: tx_message_box is NULL or invalid!\n");
         }
-        lv_label_set_text(tx_message_box, tx_display);
     }
 
-    if (rx_message_update_pending && rx_message_box) {
-        rx_message_update_pending = false;
-        static char rx_display[500];
-        rx_display[0] = '\0';
-        for (int i = 0; i < rx_message_count; i++) {
-            strcat(rx_display, "RX: ");
-            strcat(rx_display, rx_messages[i]);
-            if (i < rx_message_count - 1)
-                strcat(rx_display, "\n");
+    if (rx_message_update_pending) {
+        Serial.printf("loop: rx_message_update_pending TRUE, rx_message_box=%p\n", rx_message_box);
+        if (rx_message_box && lv_obj_is_valid(rx_message_box)) {
+            rx_message_update_pending = false;
+            static char rx_display[500];
+            rx_display[0] = '\0';
+            for (int i = 0; i < rx_message_count; i++) {
+                strcat(rx_display, "RX: ");
+                strcat(rx_display, rx_messages[i]);
+                if (i < rx_message_count - 1)
+                    strcat(rx_display, "\n");
+            }
+            lv_label_set_text(rx_message_box, rx_display);
+            Serial.printf("loop: RX message box updated\n");
+        } else {
+            Serial.printf("loop: rx_message_box is NULL or invalid!\n");
         }
-        lv_label_set_text(rx_message_box, rx_display);
     }
 
     // Update status and limit indicators (check every loop cycle for

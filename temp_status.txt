@@ -1,0 +1,5 @@
+ M MagLoop_Common_Files
+ M src/main.cpp
+?? src/fsm/
+?? temp_status.txt
+?? test/
