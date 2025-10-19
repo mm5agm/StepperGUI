@@ -1,3 +1,3 @@
  M MagLoop_Common_Files
  M temp_status.txt
-?? src/devices/fsm/
+ M upload_code_if_changed.bat

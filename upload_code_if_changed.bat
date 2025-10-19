@@ -6,7 +6,11 @@ git status --porcelain > temp_status.txt
 findstr /r /c:"^.." temp_status.txt >nul
 if %errorlevel%==0 (
     echo Changes detected in StepperGUI. Pushing to GitHub...
+    echo Staged files:
+    git status --short
     git add -A
+    echo After staging:
+    git status --short
     git commit -m "Update StepperGUI and submodule"
     git push origin master
 ) else (
@@ -22,7 +26,11 @@ git status --porcelain > temp_status.txt
 findstr /r /c:"^.." temp_status.txt >nul
 if %errorlevel%==0 (
     echo Changes detected in MagLoop_Common_Files. Pushing to GitHub...
+    echo Staged files:
+    git status --short
     git add .
+    echo After staging:
+    git status --short
     git commit -m "Update MagLoop_Common_Files"
     git push origin main
 ) else (
