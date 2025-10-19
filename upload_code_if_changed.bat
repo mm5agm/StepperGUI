@@ -12,7 +12,8 @@ if %errorlevel%==0 (
     echo After staging:
     git status --short
     git commit -m "Update StepperGUI and submodule"
-    git push origin master
+    for /f "delims=* " %%b in ('git rev-parse --abbrev-ref HEAD') do set current_branch=%%b
+    git push origin %current_branch%
 ) else (
     echo No changes to push in StepperGUI.
 )
