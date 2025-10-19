@@ -1,2 +1,3 @@
  M MagLoop_Common_Files
  M temp_status.txt
+?? src/devices/fsm/
