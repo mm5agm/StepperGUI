@@ -6,7 +6,7 @@ git status --porcelain > temp_status.txt
 findstr /r /c:"^.." temp_status.txt >nul
 if %errorlevel%==0 (
     echo Changes detected in StepperGUI. Pushing to GitHub...
-    git add .
+    git add -A
     git commit -m "Update StepperGUI and submodule"
     git push origin master
 ) else (
