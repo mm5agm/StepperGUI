@@ -51,8 +51,6 @@ void StepperGuiFsm::transition_to(State s) {
 }
 
 void StepperGuiFsm::handle_event(const Event &ev) {
-        // DEBUG: Log every event type received by FSM
-        Serial.printf("[DEBUG] FSM handle_event: state=%d, event.type=%d, int_arg=%d\n", (int)state_, (int)ev.type, (int)ev.int_arg);
     switch (state_) {
         case State::IDLE:
             switch (ev.type) {
@@ -65,8 +63,6 @@ void StepperGuiFsm::handle_event(const Event &ev) {
                     transition_to(State::MOVING_DOWN);
                     break;
                 case EventType::BTN_MOVE_TO:
-                    // DEBUG: FSM event handler for BTN_MOVE_TO
-                    Serial.printf("[DEBUG] FSM event handler: BTN_MOVE_TO received, int_arg=%d\n", ev.int_arg);
                     // Always call send_cmd_ for MOVE_TO to guarantee [SENT CMD] output
                     if (send_cmd_) send_cmd_("MOVE_TO", ev.int_arg);
                     transition_to(State::MOVING_TO);
@@ -82,8 +78,6 @@ void StepperGuiFsm::handle_event(const Event &ev) {
         case State::MOVING_TO:
             switch (ev.type) {
                 case EventType::BTN_MOVE_TO:
-                    // DEBUG: FSM event handler for BTN_MOVE_TO (MOVING_TO)
-                    Serial.printf("[DEBUG] FSM event handler: BTN_MOVE_TO received (MOVING_TO), int_arg=%d\n", ev.int_arg);
                     if (send_cmd_) send_cmd_("MOVE_TO", ev.int_arg);
                     // Optionally stay in MOVING_TO or reset state
                     break;
@@ -106,8 +100,6 @@ void StepperGuiFsm::handle_event(const Event &ev) {
         case State::MOVING_DOWN:
             switch (ev.type) {
                 case EventType::BTN_MOVE_TO:
-                    // DEBUG: FSM event handler for BTN_MOVE_TO (MOVING_UP/DOWN)
-                    Serial.printf("[DEBUG] FSM event handler: BTN_MOVE_TO received (MOVING_UP/DOWN), int_arg=%d\n", ev.int_arg);
                     if (send_cmd_) send_cmd_("MOVE_TO", ev.int_arg);
                     transition_to(State::MOVING_TO);
                     break;
