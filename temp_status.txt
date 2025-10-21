@@ -1,5 +1,2 @@
  M MagLoop_Common_Files
- M src/fsm/stepper_gui_fsm.cpp
- M src/fsm/stepper_gui_fsm.hpp
- M src/main.cpp
  M temp_status.txt
