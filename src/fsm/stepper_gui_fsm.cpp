@@ -70,6 +70,30 @@ void StepperGuiFsm::handle_event(const Event &ev) {
                 case EventType::ESP_POS_UPDATE:
                     // stay idle, update UI only
                     break;
+                case EventType::BTN_HOME:
+                    if (send_cmd_) send_cmd_("HOME", 0);
+                    transition_to(State::RESETTING);
+                    break;
+                case EventType::HOME_COMPLETE:
+                    // Home complete, update UI/state
+                    transition_to(State::IDLE);
+                    break;
+                case EventType::HOME_FAILED:
+                    transition_to(State::ERROR);
+                    break;
+                case EventType::SENSOR_STATUS:
+                    // Handle sensor status event
+                    break;
+                case EventType::SET_HOME_POSITION:
+                    if (send_cmd_) send_cmd_("SET_HOME_POSITION", ev.int_arg);
+                    break;
+                case EventType::MOVE_TO_HOME:
+                    if (send_cmd_) send_cmd_("MOVE_TO_HOME", 0);
+                    transition_to(State::MOVING_TO);
+                    break;
+                case EventType::SENSOR_ERROR:
+                    transition_to(State::ERROR);
+                    break;
                 default:
                     break;
             }
@@ -106,8 +130,7 @@ void StepperGuiFsm::handle_event(const Event &ev) {
                 case EventType::ESP_POS_UPDATE:
                     // Update pos in UI (callback)
                     break;
-                case EventType::LIMIT_UP:
-                case EventType::LIMIT_DOWN:
+                // Removed: LIMIT_UP and LIMIT_DOWN event types
                 case EventType::BTN_STOP:
                     if (send_cmd_) send_cmd_("STOP", 0);
                     transition_to(State::IDLE);
@@ -120,15 +143,7 @@ void StepperGuiFsm::handle_event(const Event &ev) {
 
 
         case State::RESETTING:
-            // For now, treat as busy state; accept limit events
-            if (ev.type == EventType::LIMIT_DOWN || ev.type == EventType::LIMIT_UP) {
-                transition_to(State::IDLE);
-            }
-            break;
-
-        case State::MOVE_TO_DOWN_LIMIT:
-            // Handle MOVE_TO_DOWN_LIMIT state if needed (currently no-op)
-            // Add logic here if special handling is required
+            // For now, treat as busy state
             break;
         case State::ERROR:
             // require manual reset

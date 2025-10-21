@@ -111,15 +111,9 @@ static int recent_message_failures = 0;
 static uint32_t last_send_attempt = 0;
 static int stable_failure_count = 0;
 
-// ===== Limit Switch Status Variables =====
-static bool up_limit_ok = true;   // Default to OK (green)
-static bool down_limit_ok = true; // Default to OK (green)
-static lv_obj_t* up_limit_indicator = NULL;
-static lv_obj_t* down_limit_indicator = NULL;
+// ===== Removed: Limit Switch Status Variables =====
 static lv_obj_t* tx_message_box = NULL;
 static lv_obj_t* rx_message_box = NULL;
-static bool prev_up_limit_ok = true;
-static bool prev_down_limit_ok = true;
 
 // ===== UI Element Globals (moved here for ESP-NOW access) =====
 static lv_obj_t* g_position_label = NULL;
@@ -130,24 +124,24 @@ static void initialize_position_array();
 static bool save_positions_to_file();
 static bool save_single_position(int band_index, int mode_index, int32_t position);
 static bool load_positions_from_file();
-static int32_t clamp_position(int32_t position);
+// Removed: clamp_position declaration
 static void update_current_position(int32_t position);
 static void change_band_mode(int band_index, int mode_index);
 static void update_position_display(int32_t position);
 static void update_signal_display(int8_t rssi);
 //static void evaluate_signal_strength();
-static void update_limit_indicators();
+// Removed: update_limit_indicators declaration
 static void create_message_boxes();
 static void add_tx_message(const char* message);
 static void add_rx_message(const char* message);
 
 // Forward declarations for all helper functions used before their definition
 static void add_rx_message(const char* message);
-static int32_t clamp_position(int32_t position);
+// Removed: clamp_position declaration
 static void change_band_mode(int band_index, int mode_index);
 static void update_position_display(int32_t position);
 static void update_signal_display(int8_t rssi);
-static void update_limit_indicators();
+// Removed: update_limit_indicators declaration
 void create_speed_delay_controls();
 void init_button_styles(void);
 void create_move_buttons();
@@ -250,11 +244,11 @@ static SpeedControlData* g_speed_controls[4] = { NULL, NULL, NULL, NULL };
 
 // Forward declarations for all helper functions used before their definition
 static void add_rx_message(const char* message);
-static int32_t clamp_position(int32_t position);
+// Removed: clamp_position declaration
 static void change_band_mode(int band_index, int mode_index);
 static void update_position_display(int32_t position);
 static void update_signal_display(int8_t rssi);
-static void update_limit_indicators();
+// Removed: update_limit_indicators declaration
 void create_speed_delay_controls();
 void init_button_styles(void);
 void create_move_buttons();
@@ -618,7 +612,7 @@ void on_data_recv(const uint8_t* mac, const uint8_t* data, int len) {
     switch (msg.command) {
     case CMD_POSITION:
         // Don't update UI directly in interrupt context - defer to main loop
-        pending_position = clamp_position(msg.param);
+        pending_position = msg.param;
         position_update_pending = true;
         Serial.printf("Position received: %d -> passthrough to %d (deferred, "
                       "no limiting) - MOVEMENT DETECTED at %u\n",
@@ -638,22 +632,7 @@ void on_data_recv(const uint8_t* mac, const uint8_t* data, int len) {
         Serial.printf("Heartbeat response received (success rate: %d/%d)\n",
                       heartbeat_success_count, heartbeat_total_count);
         break;
-    case CMD_UP_LIMIT_OK:
-        up_limit_ok = true;
-        Serial.println("Up limit switch OK");
-        break;
-    case CMD_UP_LIMIT_TRIP:
-        up_limit_ok = false;
-        Serial.println("Up limit switch TRIPPED");
-        break;
-    case CMD_DOWN_LIMIT_OK:
-        down_limit_ok = true;
-        Serial.println("Down limit switch OK");
-        break;
-    case CMD_DOWN_LIMIT_TRIP:
-        down_limit_ok = false;
-        Serial.println("Down limit switch TRIPPED");
-        break;
+    // Removed: limit switch status handling
     case CMD_ACK:
         // handle ack
         break;
@@ -791,26 +770,16 @@ static const char* cmd_to_str(CommandType cmd) {
         return "DOWN_FAST";
     case CMD_MOVE_TO:
         return "MOVE_TO";
-    case CMD_MOVE_TO_DOWN_LIMIT:
-        return "MOVE_TO_DOWN_LIMIT";
-    case CMD_DOWN_LIMIT_STATUS:
-        return "DOWN_LIMIT_STATUS";
-    case CMD_REQUEST_DOWN_STOP:
-        return "REQUEST_DOWN_STOP";
+    // Removed: CMD_MOVE_TO_DOWN_LIMIT case
+    // Removed: CMD_DOWN_LIMIT_STATUS case
+    // Removed: CMD_REQUEST_DOWN_STOP case
     case CMD_GET_POSITION:
         return "GET_POSITION";
     case CMD_RESET:
         return "RESET";
     case CMD_POSITION:
         return "POSITION";
-    case CMD_UP_LIMIT_OK:
-        return "UP_LIMIT_OK";
-    case CMD_UP_LIMIT_TRIP:
-        return "UP_LIMIT_TRIP";
-    case CMD_DOWN_LIMIT_OK:
-        return "DOWN_LIMIT_OK";
-    case CMD_DOWN_LIMIT_TRIP:
-        return "DOWN_LIMIT_TRIP";
+    // Removed: limit switch command string cases
     case CMD_HEARTBEAT:
         return "HEARTBEAT";
     case CMD_ACK:
@@ -1045,7 +1014,7 @@ static bool load_positions_from_file() {
     current_band_index = positionArray[0][0];
     current_mode_index = positionArray[0][1];
     autosave_on = (positionArray[0][2] != 0);
-    current_stepper_position = clamp_position(positionArray[0][3]);
+    current_stepper_position = positionArray[0][3];
     positionArray[0][3] = current_stepper_position;
 
     Serial.println("Positions loaded from preferences:");
@@ -1115,28 +1084,10 @@ static void check_and_migrate_prefs() {
     Serial.println("Prefs check complete (missing keys created if any)");
 }
 
-// Helper function to clamp position within valid range
-// TEMPORARILY DISABLED FOR DEBUGGING - PASSES THROUGH ALL VALUES
-static int32_t clamp_position(int32_t position) {
-    // Position limiting temporarily disabled for debugging
-    Serial.printf("Position passthrough (no limiting): %d\n", (int)position);
-    return position;
-
-    /*
-    if (position < MIN_STEPPER_POSITION) {
-      Serial.printf("Position %d below minimum, clamping to %d\n",
-    (int)position, MIN_STEPPER_POSITION); return MIN_STEPPER_POSITION;
-    }
-    if (position > MAX_STEPPER_POSITION) {
-      Serial.printf("Position %d above maximum, clamping to %d\n",
-    (int)position, MAX_STEPPER_POSITION); return MAX_STEPPER_POSITION;
-    }
-    return position;
-    */
-}
+// Removed: clamp_position and position limiting logic
 
 static void update_current_position(int32_t position) {
-    position = clamp_position(position);
+    // Removed: clamp_position usage
     current_stepper_position = position;
     positionArray[0][3] = position;
 
@@ -1205,7 +1156,6 @@ static void change_band_mode(int band_index, int mode_index) {
    // Serial.printf("[DEBUG] send_message_to_controller: cmd=%s param=%ld\n", cmd_to_str(cmd), (long)param);
 
         // Update current position immediately (will be confirmed when stepper responds)
-        stored_position = clamp_position(stored_position);
         current_stepper_position = stored_position;
         positionArray[0][3] = stored_position;
         update_position_display(stored_position);
@@ -1281,68 +1231,7 @@ static void update_signal_display(int8_t rssi) {
     Serial.printf("Signal updated (RSSI: %d dBm)\n", rssi);
 }
 
-static void update_limit_indicators() {
-    if (!up_limit_indicator || !down_limit_indicator) {
-        Serial.println("Limit indicators not initialized yet");
-        return;
-    }
-
-    // Only update if status has changed
-    bool status_changed = false;
-
-    // Check if Up Limit status changed
-    if (up_limit_ok != prev_up_limit_ok) {
-        prev_up_limit_ok = up_limit_ok;
-        status_changed = true;
-
-        if (up_limit_ok) {
-            lv_obj_set_style_bg_color(up_limit_indicator,
-                                      lv_color_hex(0x00AA00),
-                                      LV_PART_MAIN); // Green
-            lv_obj_t* up_label = lv_obj_get_child(up_limit_indicator, 0);
-            if (up_label)
-                lv_label_set_text(up_label, "UP OK");
-        } else {
-            lv_obj_set_style_bg_color(up_limit_indicator,
-                                      lv_color_hex(0xFF0000),
-                                      LV_PART_MAIN); // Red
-            lv_obj_t* up_label = lv_obj_get_child(up_limit_indicator, 0);
-            if (up_label)
-                lv_label_set_text(up_label, "UP TRIP");
-        }
-        lv_obj_invalidate(up_limit_indicator);
-    }
-
-    // Check if Down Limit status changed
-    if (down_limit_ok != prev_down_limit_ok) {
-        prev_down_limit_ok = down_limit_ok;
-        status_changed = true;
-
-        if (down_limit_ok) {
-            lv_obj_set_style_bg_color(down_limit_indicator,
-                                      lv_color_hex(0x00AA00),
-                                      LV_PART_MAIN); // Green
-            lv_obj_t* down_label = lv_obj_get_child(down_limit_indicator, 0);
-            if (down_label)
-                lv_label_set_text(down_label, "DOWN OK");
-        } else {
-            lv_obj_set_style_bg_color(down_limit_indicator,
-                                      lv_color_hex(0xFF0000),
-                                      LV_PART_MAIN); // Red
-            lv_obj_t* down_label = lv_obj_get_child(down_limit_indicator, 0);
-            if (down_label)
-                lv_label_set_text(down_label, "DOWN TRIP");
-        }
-        lv_obj_invalidate(down_limit_indicator);
-    }
-
-    // Only print and update if something actually changed
-    if (status_changed) {
-        Serial.printf("Limit indicators updated: UP=%s, DOWN=%s\n",
-                      up_limit_ok ? "OK" : "TRIP",
-                      down_limit_ok ? "OK" : "TRIP");
-    }
-}
+// Removed: update_limit_indicators function definition
 // ===== Speed Pulse Delay Controls UI Event Callbacks =====
 
 static void speed_dec_btn_event_cb(lv_event_t* e) {
@@ -1532,43 +1421,7 @@ void create_move_buttons() {
     }
 }
 
-void create_limit_indicators() {
-    // Up Limit Indicator at fixed position
-    up_limit_indicator = lv_obj_create(lv_scr_act());
-    lv_obj_remove_style_all(up_limit_indicator);
-    lv_obj_set_size(up_limit_indicator, LIMIT_BTN_WIDTH, LIMIT_BTN_HEIGHT);
-    lv_obj_set_pos(up_limit_indicator, UP_LIMIT_X, UP_LIMIT_Y);
-    lv_obj_set_style_bg_color(up_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
-    lv_obj_set_style_bg_opa(up_limit_indicator, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(up_limit_indicator, 2, LV_PART_MAIN);
-    lv_obj_set_style_border_color(up_limit_indicator, lv_color_hex(0x555555), LV_PART_MAIN);
-    lv_obj_set_style_radius(up_limit_indicator, 5, LV_PART_MAIN);
-    lv_obj_clear_flag(up_limit_indicator, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t* up_label = lv_label_create(up_limit_indicator);
-    lv_label_set_text(up_label, "UP OK");
-    lv_obj_set_style_text_color(up_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(up_label, &lv_font_montserrat_10, LV_PART_MAIN);
-    lv_obj_center(up_label);
-
-    // Down Limit Indicator at fixed position
-    down_limit_indicator = lv_obj_create(lv_scr_act());
-    lv_obj_remove_style_all(down_limit_indicator);
-    lv_obj_set_size(down_limit_indicator, LIMIT_BTN_WIDTH, LIMIT_BTN_HEIGHT);
-    lv_obj_set_pos(down_limit_indicator, DOWN_LIMIT_X, DOWN_LIMIT_Y);
-    lv_obj_set_style_bg_color(down_limit_indicator, lv_color_hex(0x00AA00), LV_PART_MAIN); // Green
-    lv_obj_set_style_bg_opa(down_limit_indicator, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(down_limit_indicator, 2, LV_PART_MAIN);
-    lv_obj_set_style_border_color(down_limit_indicator, lv_color_hex(0x555555), LV_PART_MAIN);
-    lv_obj_set_style_radius(down_limit_indicator, 5, LV_PART_MAIN);
-    lv_obj_clear_flag(down_limit_indicator, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t* down_label = lv_label_create(down_limit_indicator);
-    lv_label_set_text(down_label, "DOWN OK");
-    lv_obj_set_style_text_color(down_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(down_label, &lv_font_montserrat_10, LV_PART_MAIN);
-    lv_obj_center(down_label);
-}
+// Removed: create_limit_indicators function
 
 // ...speed slider UI removed...
 
@@ -1736,7 +1589,6 @@ void create_power_button() {
     lv_label_set_text(p_label, LV_SYMBOL_POWER);
     lv_obj_center(p_label);
 }
-
 void create_message_boxes() {
     Serial.println("Creating message boxes using simple labels...");
 
@@ -1769,7 +1621,6 @@ void create_message_boxes() {
 
     Serial.println("Message boxes created successfully using labels");
 }
-
 void create_position_display() {
     Serial.println("Creating position display...");
 
@@ -1886,7 +1737,6 @@ void build_ui() {
     create_autosave_button();
     create_power_button();
     create_message_boxes();
-    create_limit_indicators();
     create_speed_delay_controls();
     // TODO: Restore correct usage for LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH, PORTRAIT_ROTATION if needed
     // Example: Serial.printf("LVGL v%d.%d.%d, rotation=%d\n", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH, PORTRAIT_ROTATION);
@@ -1921,6 +1771,28 @@ void build_ui() {
     Serial.print("My MAC address is ");
     Serial.println(WiFi.macAddress());
 
+    esp_now_register_recv_cb(on_data_recv);
+    esp_now_register_send_cb(on_data_sent);
+
+    // Initialize ESP-NOW peer info structure completely
+    memset(&peer_info, 0, sizeof(esp_now_peer_info_t));
+    memcpy(peer_info.peer_addr, controller_mac, 6);
+    peer_info.channel = 0;
+    peer_info.ifidx = WIFI_IF_STA;
+    peer_info.encrypt = false;
+
+    if (esp_now_add_peer(&peer_info) != ESP_OK) {
+        Serial.println("Failed to add peer");
+    }
+
+    // Move stepper to saved position on startup
+    Serial.printf("Moving to startup position: %d for %s/%s\n",
+                  (int)current_stepper_position,
+                  band_buttons[current_band_index].label,
+                  mode_buttons[current_mode_index].label);
+    send_message_to_controller(CMD_MOVE_TO, current_stepper_position);
+
+    Serial.println("Setup done");
     esp_now_register_recv_cb(on_data_recv);
     esp_now_register_send_cb(on_data_sent);
 
@@ -2200,7 +2072,7 @@ void loop() {
     bool should_update = (now - last_status_update >= 200);
     if (should_update) {
         last_status_update = now;
-        update_limit_indicators();
+        // Removed: update_limit_indicators()
     }
     if (now - last_signal_update >= 1000) {
         last_signal_update = now;

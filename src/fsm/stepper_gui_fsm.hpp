@@ -11,10 +11,10 @@ enum class State : uint8_t {
     MOVING_UP,
     MOVING_DOWN,
     MOVING_TO,
-    MOVE_TO_DOWN_LIMIT,
     RESETTING,
     ERROR,
 };
+
 
 enum class EventType : uint8_t {
     BTN_MOVE_UP,
@@ -23,10 +23,15 @@ enum class EventType : uint8_t {
     BTN_STOP,
     BTN_RESET,
     ESP_POS_UPDATE,
-    LIMIT_DOWN,
-    LIMIT_UP,
     TIMEOUT,
     ERROR,
+    BTN_HOME,
+    HOME_COMPLETE,
+    HOME_FAILED,
+    SENSOR_STATUS,
+    SET_HOME_POSITION,
+    MOVE_TO_HOME,
+    SENSOR_ERROR,
 };
 
 struct Event {
