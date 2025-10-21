@@ -1,7 +1,9 @@
-@echo off
-REM Upload changes to GitHub for StepperGUI and MagLoop_Common_Files
 
-REM Check for changes in main project (StepperGUI)
+@echo off
+REM Upload changes to StepperGUI and MagLoop_Common_Files
+
+REM Always prompt for commit message before checking for changes
+set /p commit_msg=Enter commit message for StepperGUI: 
 git status --porcelain > temp_status.txt
 findstr /r /c:"^.." temp_status.txt >nul
 if %errorlevel%==0 (
@@ -11,7 +13,7 @@ if %errorlevel%==0 (
     git add -A
     echo After staging:
     git status --short
-    git commit -m "Update StepperGUI and submodule"
+    git commit -m "%commit_msg%"
     for /f "delims=* " %%b in ('git rev-parse --abbrev-ref HEAD') do set current_branch=%%b
     git push origin %current_branch%
 ) else (

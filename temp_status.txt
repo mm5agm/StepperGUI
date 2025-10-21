@@ -1,3 +1,3 @@
-M  README.md
-M  STEPPER_GUI_README.md
-MM temp_status.txt
+ M MagLoop_Common_Files
+ M temp_status.txt
+ M upload_code_if_changed.bat
