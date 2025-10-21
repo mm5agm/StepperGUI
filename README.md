@@ -4,50 +4,23 @@ ESP32-S3 based GUI for controlling stepper motor systems using ESP-NOW wireless 
 
 ## Hardware
 
-- **Display**: JC4827W543C - 4.3" ESP32-S3 with 480x272 capacitive touchscreen
-- **Communication**: ESP-NOW wireless protocol
-- **GUI Framework**: LVGL 9.3.0 with Montserrat fonts
-- **Target**: Magnetic loop antenna stepper motor control
 
 ## Key Features
 
 ### Safety & Control
-- **Position Limiting**: Automatic clamping to safe range (50-1550 steps) to prevent limit switch triggers
-- **Real-time Position Monitoring**: Dual display showing raw ESP-NOW messages and clamped positions
-- **Band/Mode Memory System**: Store and recall positions for different amateur radio bands and modes
-- **Auto-save Functionality**: Persistent storage of positions and settings
 
 ### User Interface
-- **Touch-optimized Interface**: Designed for 272px portrait width with finger-friendly controls
-- **Message Box Debugging**: 7-line scrolling display for ESP-NOW communication monitoring
-- **Position Text Boxes**: Clear blue/orange displays for position and signal strength
-- **Signal Disconnection Indicator**: Signal box turns red and displays a white "Disconnected" message if communication is lost for 4 seconds
-- **Limit Switch Indicators**: Visual feedback for Up/Down limit switch states
 
 ### Communication & Debugging
-- **ESP-NOW Wireless**: Reliable peer-to-peer communication with stepper controller
-- **Deferred Update System**: Interrupt-safe ESP-NOW message handling
-- **Comprehensive Logging**: Debug output for position synchronization and message flow
-- **RSSI Monitoring**: Signal strength display for communication quality
 
 ## Hardware Setup
 
 ### JC4827W543C Device
-- **Display**: 272 x 480 pixels (portrait orientation)
-- **Performance**: ~43 frames per second
-- **Touch**: GT911 capacitive touch controller
-- **Communication**: ESP-NOW for wireless stepper motor control
-- **Power**: USB-C programming and power
 
 ## Position Limiting System
 
 The GUI implements safety limits to prevent hardware damage:
 
-- **Minimum Position**: 50 steps (safe margin above down limit switch)
-- **Maximum Position**: 1550 steps (safe margin below up limit switch)  
-- **Usable Range**: 1500 steps for antenna tuning
-- **Automatic Clamping**: Invalid positions are automatically constrained to safe limits
-- **Debug Logging**: Clamping operations are logged for troubleshooting
 
 ### Position Flow
 1. ESP-NOW receives position from StepperController
@@ -78,15 +51,10 @@ lib/
 
 ## Build Environments
 
-- **`JC4827W543C`**: Basic hardware configuration
-- **`StepperGUI`**: Production build with ESP-NOW communication
-- **`StepperGUI_debug`**: Debug build with enhanced logging and position tracking
 
 ### JC4827W543C build notes
 For the `JC4827W543C` environment the build requires an extra include path and a few LVGL compile-time defines so that shared headers and Montserrat font objects are found during compilation and linking. If you edit `platformio.ini` manually, ensure the environment includes:
 
-- Include path: `-I"MagLoop_Common_Files"` (or equivalent path that contains `stepper_commands.h` and other shared headers)
-- LVGL defines: `-D LV_FONT_MONTSERRAT_10=1 -D LV_FONT_MONTSERRAT_12=1 -D LV_FONT_MONTSERRAT_14=1 -D LV_USE_LOG=1`
 
 These flags are applied to the `[env:JC4827W543C]` build_flags in the project so the LVGL library builds the Montserrat font objects and enables logging. Without them you may see missing-header or undefined LVGL font / logging symbols at link time.
 
@@ -103,18 +71,10 @@ Touch calibration and display pins are configured for JC4827W543C hardware.
 
 ## Recent Updates
 
-- Implemented position limiting system for hardware safety
-- Added comprehensive ESP-NOW debugging with message boxes
-- Replaced confusing position sliders with clear text displays
-- Enhanced logging for position synchronization troubleshooting
-- Optimized UI layout for 272px portrait orientation
-- Fixed LVGL font configuration issues
 
 
 
 ## Batch Scripts for Syncing Code
-
-Use the following batch files to keep your StepperGUI and MagLoop_Common_Files repositories up to date:
 
 - **download_latest_code.bat**: Pulls the latest code from both StepperGUI and MagLoop_Common_Files.
 - **upload_code_if_changed.bat**: Checks for changes in both repositories and pushes updates only if changes are detected.
@@ -127,5 +87,10 @@ Use the following batch files to keep your StepperGUI and MagLoop_Common_Files r
 These scripts automate the most common sync operations for development.
 
 ## development environment
-* Visual Code 1.103.2
+
+---
+**NOTE: This is the final version of StepperGUI using mechanical limit switches and position limiting. Future development will use the TCRT5000 Infrared Reflective Photoelectric Switch IR Tracking Sensor Module for end-stop detection, and position limiting code will be removed.**
+
+All position limiting and limit switch logic is now archived for reference. If you need the last version with limit switches, use the `limit-switches-final` git tag or branch.
+
 * PlatformIO 6.1.18

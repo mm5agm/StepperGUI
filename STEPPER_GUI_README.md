@@ -1,3 +1,9 @@
+
+---
+**NOTE: This is the final version of StepperGUI using mechanical limit switches and position limiting. Future development will use the TCRT5000 Infrared Reflective Photoelectric Switch IR Tracking Sensor Module for end-stop detection, and position limiting code will be removed.**
+
+All position limiting and limit switch logic is now archived for reference. If you need the last version with limit switches, use the `limit-switches-final` git tag or branch.
+---
 # StepperGUI - Advanced ESP-NOW Control System
 
 ESP32-S3 based GUI for magnetic loop antenna stepper motor control with comprehensive safety features and debugging capabilities.
