@@ -710,22 +710,7 @@ void on_data_recv(const uint8_t* mac, const uint8_t* data, int len) {
         Serial.printf("Heartbeat response received (success rate: %d/%d)\n",
                       heartbeat_success_count, heartbeat_total_count);
         break;
-    case CMD_UP_LIMIT_OK:
-        up_limit_ok = true;
-        Serial.println("Up limit switch OK");
-        break;
-    case CMD_UP_LIMIT_TRIP:
-        up_limit_ok = false;
-        Serial.println("Up limit switch TRIPPED");
-        break;
-    case CMD_DOWN_LIMIT_OK:
-        down_limit_ok = true;
-        Serial.println("Down limit switch OK");
-        break;
-    case CMD_DOWN_LIMIT_TRIP:
-        down_limit_ok = false;
-        Serial.println("Down limit switch TRIPPED");
-        break;
+    // Removed: limit switch status handling
     case CMD_ACK:
         // handle ack
         break;
@@ -865,6 +850,9 @@ static const char* cmd_to_str(CommandType cmd) {
     case CMD_MOVE_TO:
         return "MOVE_TO";
 
+    // Removed: CMD_MOVE_TO_DOWN_LIMIT case
+    // Removed: CMD_DOWN_LIMIT_STATUS case
+    // Removed: CMD_REQUEST_DOWN_STOP case
     case CMD_GET_POSITION:
         return "GET_POSITION";
     case CMD_RESET:
@@ -883,6 +871,7 @@ static const char* cmd_to_str(CommandType cmd) {
     case CMD_SENSOR_STATUS:
         return "SENSOR_STATUS";
 
+    // Removed: limit switch command string cases
     case CMD_HEARTBEAT:
         return "HEARTBEAT";
     case CMD_ACK:
@@ -1286,7 +1275,6 @@ static void change_band_mode(int band_index, int mode_index) {
         // param=%ld\n", cmd_to_str(cmd), (long)param);
 
         // Update current position immediately (will be confirmed when stepper responds)
-        stored_position = clamp_position(stored_position);
         current_stepper_position = stored_position;
         positionArray[0][3] = stored_position;
         update_position_display(stored_position);
@@ -1607,6 +1595,7 @@ void create_home_button() {
         },
         LV_EVENT_ALL, NULL);
 }
+// Removed: create_limit_indicators function
 
 // ...speed slider UI removed...
 
@@ -2277,7 +2266,7 @@ void loop() {
     bool should_update = (now - last_status_update >= 200);
     if (should_update) {
         last_status_update = now;
-        update_limit_indicators();
+        // Removed: update_limit_indicators()
     }
     if (now - last_signal_update >= 1000) {
         last_signal_update = now;
