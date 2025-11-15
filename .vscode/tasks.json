@@ -1,0 +1,21 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build and Upload StepperGUI_debug",
+			"type": "shell",
+			"command": "platformio",
+			"args": [
+				"run",
+				"--target",
+				"upload",
+				"--environment",
+				"StepperGUI_debug",
+				"--upload-port",
+				"COM8"
+			],
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}

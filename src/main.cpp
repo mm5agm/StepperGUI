@@ -1,7 +1,7 @@
 
 #include "Arial_Arrows_14.h"
 #include "Touch_GT911.h"
-#include "fsm/stepper_gui_fsm.hpp"
+//#include "fsm/stepper_gui_fsm.hpp"
 #include "stepper_commands.h"
 #include "stepper_helpers.h"
 #include <Arduino.h>
@@ -15,6 +15,8 @@
 #include <esp_wifi.h>
 #include <lvgl.h>
 #include <stdint.h>
+#include "globals.hpp"
+#include "fsm/stepper_gui_fsm.hpp"
 // Preferences API for persistent storage
 #include <Preferences.h>
 static Preferences preferences;
@@ -60,12 +62,6 @@ lv_style_t style_signal_slider;
 #define MAX_MESSAGES 4 // Reduced from 7 for less clutter
 #endif
 
-#ifndef POSITION_ROWS
-#define POSITION_ROWS 7
-#endif
-#ifndef POSITION_COLS
-#define POSITION_COLS 4
-#endif
 #ifndef PREFS_NAMESPACE
 #define PREFS_NAMESPACE "magloop"
 #endif
@@ -76,32 +72,6 @@ lv_style_t style_signal_slider;
 #define PREFS_VERSION 1
 #endif
 
-#ifndef POSITION_ROWS_DEFINED
-#define POSITION_ROWS_DEFINED
-static int32_t positionArray[POSITION_ROWS][POSITION_COLS];
-static int current_band_index = 0; // Index into band_buttons array
-static int current_mode_index = 0; // Index into mode_buttons array
-static int32_t current_stepper_position = 0;
-static bool position_system_initialized = false;
-static bool autosave_on = false;
-static bool position_update_pending = false;
-static int32_t pending_position = 0;
-static int8_t last_rssi = -100;
-static bool signal_update_pending = false;
-static bool signal_forced_offline = false; // For RSSI logic
-#endif
-static bool tx_message_update_pending = false;
-static bool rx_message_update_pending = false;
-static char tx_messages[MAX_MESSAGES][60];
-static char rx_messages[MAX_MESSAGES][60];
-static int tx_message_count = 0;
-static int rx_message_count = 0;
-static uint32_t last_esp_now_msg_time = 0;
-static int consecutive_msgs = 0;
-static uint32_t last_signal_update = 0;
-static uint32_t last_heartbeat_received = 0;
-static int heartbeat_success_count = 0;
-static int heartbeat_total_count = 0;
 static int recent_message_failures = 0;
 static uint32_t last_send_attempt = 0;
 static int stable_failure_count = 0;
@@ -687,8 +657,14 @@ void on_data_recv(const uint8_t* mac, const uint8_t* data, int len) {
 
     case CMD_HOME_COMPLETE:
         // Homing operation completed
-        Serial.println(
-            "CMD_HOME_COMPLETE received - homing operation complete");
+        Serial.println("CMD_HOME_COMPLETE received - homing operation complete");
+        {
+            fsm::Event ev{};
+            ev.type = fsm::EventType::HOME_COMPLETE;
+            Serial.printf("[DEBUG] main.cpp: pushing FSM HOME_COMPLETE event, type=%d\n", (int)ev.type);
+            g_fsm.push_event(ev);
+            Serial.println("[DEBUG] main.cpp: FSM HOME_COMPLETE event pushed");
+        }
         break;
     case CMD_HOME_FAILED:
         // Homing operation failed
@@ -770,12 +746,6 @@ MoveButton move_buttons[] = {
 static int move_btn_indices[sizeof(move_buttons) / sizeof(move_buttons[0])];
 
 // ===== Radio Button Struct & Data =====
-typedef struct {
-    const char* label;
-} Button;
-
-Button mode_buttons[] = {{"CW"}, {"SSB"}, {"FT4"}, {"FT8"}};
-Button band_buttons[] = {{"10"}, {"12"}, {"15"}, {"17"}, {"20"}, {"30"}};
 
 static lv_obj_t* last_mode_btn = NULL;
 static lv_obj_t* last_band_btn = NULL;
@@ -1582,15 +1552,22 @@ void create_home_button() {
             lv_event_code_t code = lv_event_get_code(e);
             lv_obj_t* btn = (lv_obj_t*)lv_event_get_target(e);
             if (code == LV_EVENT_CLICKED) {
+                Serial.println("[DEBUG] Home button LV_EVENT_CLICKED: pushing FSM MOVE_TO_HOME event");
                 // Turn button red
-                lv_obj_set_style_bg_color(btn, lv_color_hex(0xFF0000),
-                                          LV_PART_MAIN);
-                // Send CMD_MOVE_TO_HOME
-                send_message(CMD_MOVE_TO_HOME, 0, 0);
+                lv_obj_set_style_bg_color(btn, lv_color_hex(0xFF0000), LV_PART_MAIN);
+                // Push FSM MOVE_TO_HOME event (triggers CMD_MOVE_TO_HOME)
+                fsm::Event ev{};
+                ev.type = fsm::EventType::MOVE_TO_HOME;
+                ev.int_arg = current_stepper_position;
+                Serial.printf("[DEBUG] Home button: MOVE_TO_HOME event int_arg (current_stepper_position) = %ld\n", (long)current_stepper_position);
+                g_fsm.push_event(ev);
+                Serial.println("[DEBUG] Home button: after push_event, calling g_fsm.tick()");
+                // Immediately process FSM event so command is sent without delay
+                g_fsm.tick();
+                Serial.println("[DEBUG] Home button: after g_fsm.tick() call");
             } else if (code == LV_EVENT_RELEASED) {
                 // Restore button color
-                lv_obj_set_style_bg_color(btn, lv_color_hex(0x0077FF),
-                                          LV_PART_MAIN);
+                lv_obj_set_style_bg_color(btn, lv_color_hex(0x0077FF), LV_PART_MAIN);
             }
         },
         LV_EVENT_ALL, NULL);
@@ -2126,16 +2103,19 @@ void setup() {
         Serial.println("[DEBUG] ESP-NOW peer added");
     }
 
-    // Move stepper to saved position on startup via FSM
-    Serial.printf("Moving to startup position: %d for %s/%s (FSM)\n",
-                  (int)current_stepper_position,
-                  band_buttons[current_band_index].label,
-                  mode_buttons[current_mode_index].label);
-    fsm::Event ev{};
-    ev.type = fsm::EventType::BTN_MOVE_TO;
-    ev.int_arg = current_stepper_position;
-    g_fsm.push_event(ev);
+    // 1. Set home position (StepperController should set stepper at home)
+    Serial.println("[SETUP] Sending SET_HOME_POSITION (FSM)");
+    fsm::Event set_home_ev{};
+    set_home_ev.type = fsm::EventType::SET_HOME_POSITION;
+    set_home_ev.int_arg = 0; // Home position is 0
+    g_fsm.push_event(set_home_ev);
 
+    // 2. Set position to 0 (update GUI and internal state)
+    current_stepper_position = 0;
+    update_position_display(current_stepper_position);
+    Serial.println("[SETUP] Stepper position set to 0");
+
+    // Do NOT move to last band/mode position yet; wait for HOME_COMPLETE
     Serial.println("Setup done");
 
     // Initialize FSM: provide send command and UI update callbacks
@@ -2150,6 +2130,9 @@ void setup() {
                 send_message_to_controller(CMD_DOWN_FAST);
             } else if (strcmp(cmd, "STOP") == 0) {
                 send_message_to_controller(CMD_STOP);
+            } else if (strcmp(cmd, "MOVE_TO_HOME") == 0) {
+                Serial.println("[DEBUG] FSM send callback: MOVE_TO_HOME received");
+                send_message_to_controller(CMD_MOVE_TO_HOME, 0);
             } else {
                 // fallback for unknown commands
                 Serial.printf("[SENT CMD] Unknown FSM command: %s %ld\n", cmd,
@@ -2159,9 +2142,26 @@ void setup() {
         // UI update callback - update UI based on FSM state
         [](fsm::State s) {
             Serial.printf("FSM state -> %d\n", (int)s);
+            static lv_obj_t* home_btn = nullptr;
+            if (!home_btn) {
+                // Find the home button by its position/size (since it's static in create_home_button)
+                lv_obj_t* scr = lv_scr_act();
+                uint32_t child_cnt = lv_obj_get_child_cnt(scr);
+                for (uint32_t i = 0; i < child_cnt; ++i) {
+                    lv_obj_t* obj = lv_obj_get_child(scr, i);
+                    if (lv_obj_get_x(obj) == 10 && lv_obj_get_y(obj) == 8 && lv_obj_get_width(obj) == 70 && lv_obj_get_height(obj) == 28) {
+                        home_btn = obj;
+                        break;
+                    }
+                }
+            }
             switch (s) {
             case fsm::State::IDLE:
                 update_position_display(current_stepper_position);
+                if (home_btn) {
+                    // Turn Home button green
+                    lv_obj_set_style_bg_color(home_btn, lv_color_hex(0x00C800), LV_PART_MAIN);
+                }
                 break;
             case fsm::State::MOVING_UP:
             case fsm::State::MOVING_DOWN:
