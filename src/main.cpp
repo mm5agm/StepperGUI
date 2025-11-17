@@ -498,6 +498,7 @@ static void add_rx_message(const char* message) {
 // Sends a command to the controller via ESP-NOW and updates the TX message box
 static bool send_message_to_controller(CommandType cmd,
                                        int32_t param = STEPPER_PARAM_UNUSED) {
+    Serial.printf("[DEBUG] send_message_to_controller called: cmd=%s param=%ld\n", cmd_to_str(cmd), (long)param);
     Message msg;
     msg.messageId = next_message_id++;
     msg.command = cmd;
@@ -2103,12 +2104,12 @@ void setup() {
         Serial.println("[DEBUG] ESP-NOW peer added");
     }
 
-    // 1. Set home position (StepperController should set stepper at home)
-    Serial.println("[SETUP] Sending SET_HOME_POSITION (FSM)");
-    fsm::Event set_home_ev{};
-    set_home_ev.type = fsm::EventType::SET_HOME_POSITION;
-    set_home_ev.int_arg = 0; // Home position is 0
-    g_fsm.push_event(set_home_ev);
+    // 1. Move to home position (StepperController should set stepper at home)
+    Serial.println("[SETUP] Sending MOVE_TO_HOME (FSM)");
+    fsm::Event move_home_ev{};
+    move_home_ev.type = fsm::EventType::MOVE_TO_HOME;
+    move_home_ev.int_arg = 0; // Home position is 0
+    g_fsm.push_event(move_home_ev);
 
     // 2. Set position to 0 (update GUI and internal state)
     current_stepper_position = 0;
@@ -2133,6 +2134,9 @@ void setup() {
             } else if (strcmp(cmd, "MOVE_TO_HOME") == 0) {
                 Serial.println("[DEBUG] FSM send callback: MOVE_TO_HOME received");
                 send_message_to_controller(CMD_MOVE_TO_HOME, 0);
+            } else if (strcmp(cmd, "RESET") == 0) {
+                Serial.println("[DEBUG] FSM send callback: RESET received");
+                send_message_to_controller(CMD_RESET, 0);
             } else {
                 // fallback for unknown commands
                 Serial.printf("[SENT CMD] Unknown FSM command: %s %ld\n", cmd,

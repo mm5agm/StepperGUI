@@ -61,12 +61,21 @@ void StepperGuiFsm::tick() {
 
 void StepperGuiFsm::transition_to(State s) {
     if (state_ == s) return;
+    Serial.printf("[FSM DEBUG] transition_to: %d -> %d\n", (int)state_, (int)s);
     state_ = s;
     if (update_ui_) update_ui_(state_);
 }
 
 void StepperGuiFsm::handle_event(const Event &ev) {
     Serial.printf("[DEBUG] FSM: handle_event called, state=%d, event type=%d\n", (int)state_, (int)ev.type);
+    Serial.printf("[FSM DEBUG] Received event type: %d in state: %d\n", (int)ev.type, (int)state_);
+    // Handle RESET event globally in all states
+    if (ev.type == EventType::BTN_RESET) {
+        Serial.printf("[FSM DEBUG] Global RESET handler: state=%d\n", (int)state_);
+        if (send_cmd_) send_cmd_("RESET", 0);
+        transition_to(State::RESETTING);
+        return;
+    }
     switch (state_) {
         case State::IDLE:
             switch (ev.type) {
@@ -100,6 +109,11 @@ void StepperGuiFsm::handle_event(const Event &ev) {
                         g_last_band_mode_position = ev.int_arg;
                     }
                     if (send_cmd_) send_cmd_("HOME", 0);
+                    transition_to(State::RESETTING);
+                    break;
+                case EventType::BTN_RESET:
+                    Serial.println("[FSM DEBUG] About to call send_cmd_('RESET', 0) in IDLE state");
+                    if (send_cmd_) send_cmd_("RESET", 0);
                     transition_to(State::RESETTING);
                     break;
                 case EventType::HOME_COMPLETE:
@@ -214,7 +228,15 @@ void StepperGuiFsm::handle_event(const Event &ev) {
 
 
         case State::RESETTING:
-            // For now, treat as busy state
+            switch (ev.type) {
+            case EventType::BTN_RESET:
+                 Serial.println("[FSM DEBUG] About to call send_cmd_('RESET', 0) in RESETTING state");
+                 if (send_cmd_) send_cmd_("RESET", 0);
+                 // Optionally stay in RESETTING or transition as needed
+                break;
+            default:
+                break;
+            }
             break;
         case State::ERROR:
             // require manual reset
