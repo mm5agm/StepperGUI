@@ -22,6 +22,8 @@ extern Button band_buttons[6];
 extern int32_t positionArray[POSITION_ROWS][POSITION_COLS];
 extern int current_band_index;
 extern int current_mode_index;
+extern int32_t g_pre_home_position;
+extern int32_t g_last_band_mode_position;
 extern int32_t current_stepper_position;
 extern bool position_system_initialized;
 extern bool autosave_on;

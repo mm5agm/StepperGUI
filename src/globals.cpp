@@ -1,13 +1,17 @@
 #include "globals.hpp"
 
+int32_t positionArray[POSITION_ROWS][POSITION_COLS] = {0};
+
+
 Button mode_buttons[4] = { {"CW"}, {"SSB"}, {"FT4"}, {"FT8"} };
 Button band_buttons[6] = { {"10"}, {"12"}, {"15"}, {"17"}, {"20"}, {"30"} };
 #include "globals.hpp"
 #include <stdint.h>
 
-int32_t positionArray[POSITION_ROWS][POSITION_COLS];
 int current_band_index = 0;
 int current_mode_index = 0;
+int32_t g_pre_home_position = 0;
+int32_t g_last_band_mode_position = 0;
 int32_t current_stepper_position = 0;
 bool position_system_initialized = false;
 bool autosave_on = false;

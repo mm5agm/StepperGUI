@@ -1,16 +1,8 @@
+
+#include "../src/globals.hpp"
 #include <atomic>
-
-
-// Store the last requested band/mode position (legacy, for BTN_HOME)
-static std::atomic<int32_t> g_last_band_mode_position{0};
-// Store the position before MOVE_TO_HOME (for Home button logic)
-static std::atomic<int32_t> g_pre_home_position{0};
-
-
 #include <Arduino.h>
-#include "globals.hpp"
 #include "fsm/stepper_gui_fsm.hpp"
-
 #include <queue>
 #include <mutex>
 #include <functional>
@@ -119,9 +111,9 @@ void StepperGuiFsm::handle_event(const Event &ev) {
                 case EventType::HOME_COMPLETE:
                     // Home complete, update UI/state
                     if (update_ui_) update_ui_(State::IDLE);
-                    Serial.printf("[DEBUG] FSM: HOME_COMPLETE (MOVING_TO) handler, g_pre_home_position=%ld\n", (long)g_pre_home_position.load());
+                    Serial.printf("[DEBUG] FSM: HOME_COMPLETE (MOVING_TO) handler, g_pre_home_position=%ld\n", (long)g_pre_home_position);
                     if (send_cmd_ && g_pre_home_position != 0) {
-                        Serial.printf("[DEBUG] FSM: After HOME_COMPLETE (MOVING_TO), returning to pre-home position %ld\n", (long)g_pre_home_position.load());
+                        Serial.printf("[DEBUG] FSM: After HOME_COMPLETE (MOVING_TO), returning to pre-home position %ld\n", (long)g_pre_home_position);
                         send_cmd_("MOVE_TO", g_pre_home_position);
                     } else {
                         Serial.println("[DEBUG] FSM: HOME_COMPLETE (MOVING_TO) - g_pre_home_position is 0, not sending MOVE_TO");
@@ -158,23 +150,12 @@ void StepperGuiFsm::handle_event(const Event &ev) {
                 case EventType::HOME_COMPLETE:
                     // Home complete, update UI/state
                     if (update_ui_) update_ui_(State::IDLE);
-                    static bool startup_move_sent = false;
-                    if (!startup_move_sent) {
-                        int32_t last_band_mode_position = positionArray[current_band_index + 1][current_mode_index];
-                        Serial.printf("[FSM] After HOME_COMPLETE (startup), moving to last band/mode position %d for %s/%s\n",
-                            (int)last_band_mode_position,
-                            band_buttons[current_band_index].label,
-                            mode_buttons[current_mode_index].label);
-                        if (send_cmd_) send_cmd_("MOVE_TO", last_band_mode_position);
-                        startup_move_sent = true;
+                    Serial.printf("[DEBUG] FSM: HOME_COMPLETE handler, g_pre_home_position=%ld\n", (long)g_pre_home_position);
+                    if (send_cmd_ && g_pre_home_position != 0) {
+                        Serial.printf("[DEBUG] FSM: After HOME_COMPLETE, returning to pre-home position %ld\n", (long)g_pre_home_position);
+                        send_cmd_("MOVE_TO", g_pre_home_position);
                     } else {
-                        Serial.printf("[DEBUG] FSM: HOME_COMPLETE (MOVING_TO) handler, g_pre_home_position=%ld\n", (long)g_pre_home_position.load());
-                        if (send_cmd_ && g_pre_home_position != 0) {
-                            Serial.printf("[DEBUG] FSM: After HOME_COMPLETE (MOVING_TO), returning to pre-home position %ld\n", (long)g_pre_home_position.load());
-                            send_cmd_("MOVE_TO", g_pre_home_position);
-                        } else {
-                            Serial.println("[DEBUG] FSM: HOME_COMPLETE (MOVING_TO) - g_pre_home_position is 0, not sending MOVE_TO");
-                        }
+                        Serial.println("[DEBUG] FSM: HOME_COMPLETE - g_pre_home_position is 0, not sending MOVE_TO");
                     }
                     transition_to(State::IDLE);
                     break;
