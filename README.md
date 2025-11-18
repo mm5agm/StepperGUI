@@ -21,33 +21,42 @@ ESP32-S3 based GUI for controlling stepper motor systems using ESP-NOW wireless 
 
 ## End-Stop Detection System
 
-This version does not clamp position values in software. Instead, safety limits are enforced by hardware end-stop detection using the TCRT5000 Infrared Reflective Photoelectric Switch IR Tracking Sensor Module. The sensor reliably detects the physical limits of the stepper motor travel, and the firmware halts or reverses the motor when an end-stop is reached.
+ THe home position is detected by hardware  using the TCRT5000 Infrared Reflective Photoelectric Switch IR Tracking Sensor Module. Since my magloop capacitor can move 360 degrees I have decided against having an end stop indicator. I may add that later. 
 
 ### Position Flow
 1. ESP-NOW receives position from StepperController
 2. Raw position shown in RX message box
-3. End-stop sensor state is monitored to prevent movement beyond physical limits
-4. Position is updated and shown in the GUI
-5. Motor is stopped or reversed if an end-stop is triggered
+3. Position is updated and shown in the GUI
 
 ## Project Structure
 
+
 ```
 src/
-├── main.cpp              # Main application with position limiting and ESP-NOW
-├── application/          # Application framework
-└── devices/             # Device-specific configurations (JC4827W543C)
+├── main.cpp                # Main application logic
+├── globals.cpp, globals.hpp # Global variables and constants
+├── devices/
+│   └── JC4827W543C.hpp     # Device-specific configuration
+├── fsm/
+│   ├── stepper_gui_fsm.cpp # Finite state machine logic
+│   └── stepper_gui_fsm.hpp # FSM header
 
 include/
-├── lv_conf.h            # LVGL 9.3.0 configuration with Montserrat fonts
-├── stepper_commands.h   # ESP-NOW command definitions
-├── stepper_helpers.h    # Utility functions
-└── Arial_Arrows_14.h    # Custom font for UI elements
+├── Arial_Arrows_14.h       # Custom font for UI elements
+├── globals.hpp             # Shared global declarations
+├── lv_conf.h               # LVGL configuration
+
+MagLoop_Common_Files/
+├── circular_buffer.h       # Utility for buffering
+├── stepper_commands.h      # ESP-NOW command definitions
+├── stepper_helpers.h       # Utility functions
 
 lib/
-├── TFT_eSPI-2.5.43/     # Display library
-├── Touch_GT911/         # Capacitive touch driver
-└── XPT2046_*/           # Alternative touch drivers (unused)
+├── Touch_GT911/
+│   ├── Touch_GT911.cpp     # Capacitive touch driver
+│   └── Touch_GT911.h       # Touch driver header
+
+etc/, data/, backups/, logs/ # Additional project folders
 ```
 
 ## Build Environments
@@ -89,7 +98,7 @@ These scripts automate the most common sync operations for development.
 ## development environment
 
 ---
-**NOTE: This is the final version of StepperGUI using mechanical limit switches and position limiting. Future development will use the TCRT5000 Infrared Reflective Photoelectric Switch IR Tracking Sensor Module for end-stop detection, and position limiting code will be removed.**
+
 
 All position limiting and limit switch logic is now archived for reference. If you need the last version with limit switches, use the `limit-switches-final` git tag or branch.
 
