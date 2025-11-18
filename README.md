@@ -1,6 +1,6 @@
 # StepperGUI
 
-ESP32-S3 based GUI for controlling stepper motor systems using ESP-NOW wireless communication. Features position limiting for safety and comprehensive debugging capabilities.
+ESP32-S3 based GUI for controlling stepper motor systems using ESP-NOW wireless communication. Features comprehensive debugging capabilities.
 
 ## Hardware
 
@@ -17,17 +17,18 @@ ESP32-S3 based GUI for controlling stepper motor systems using ESP-NOW wireless 
 
 ### JC4827W543C Device
 
-## Position Limiting System
 
-The GUI implements safety limits to prevent hardware damage:
 
+## End-Stop Detection System
+
+This version does not clamp position values in software. Instead, safety limits are enforced by hardware end-stop detection using the TCRT5000 Infrared Reflective Photoelectric Switch IR Tracking Sensor Module. The sensor reliably detects the physical limits of the stepper motor travel, and the firmware halts or reverses the motor when an end-stop is reached.
 
 ### Position Flow
 1. ESP-NOW receives position from StepperController
-2. Raw position shown in RX message box (may be outside safe range)
-3. Position clamped to 50-1550 range using `clamp_position()`
-4. Clamped position shown in blue position text box
-5. Safe position sent to stepper motor
+2. Raw position shown in RX message box
+3. End-stop sensor state is monitored to prevent movement beyond physical limits
+4. Position is updated and shown in the GUI
+5. Motor is stopped or reversed if an end-stop is triggered
 
 ## Project Structure
 
@@ -62,8 +63,7 @@ These flags are applied to the `[env:JC4827W543C]` build_flags in the project so
 
 Key configuration constants in `main.cpp`:
 ```cpp
-#define MIN_STEPPER_POSITION 50    // Safe margin above down limit
-#define MAX_STEPPER_POSITION 1550  // Safe margin below up limit
+
 uint8_t controllerMAC[] = {0xEC, 0xE3, 0x34, 0xC0, 0x33, 0xC0};
 ```
 
@@ -94,3 +94,12 @@ These scripts automate the most common sync operations for development.
 All position limiting and limit switch logic is now archived for reference. If you need the last version with limit switches, use the `limit-switches-final` git tag or branch.
 
 * PlatformIO 6.1.18
+### End-Stop Detection
+
+This version uses the TCRT5000 Infrared Reflective Photoelectric Switch IR Tracking Sensor Module for end-stop detection. The sensor is used to reliably detect the physical limits of the stepper motor travel, providing accurate and safe position limiting.
+
+Wiring and integration details:
+- Connect the TCRT5000 sensor output to the designated end-stop input pin on the ESP32-S3.
+- The firmware reads the sensor state to determine when the end-stop is reached and halts or reverses the motor as needed.
+
+Refer to the schematic and code comments for further integration details.
