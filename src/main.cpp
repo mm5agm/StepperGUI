@@ -1356,14 +1356,10 @@ static void speed_dec_btn_event_cb(lv_event_t* e) {
             Serial.printf("Saved immediately: %s -> %d (verified=%d)\n",
                           d->pref_key, (int)*(d->value), verify);
         }
-        // notify FSM
-        fsm::Event ev{};
-        // Map speed control to a generic event (customize as needed)
-        ev.type = fsm::EventType::BTN_MOVE_TO;
-        ev.int_arg = *(d->value);
-        g_fsm.push_event(ev);
-        Serial.printf("Speed dec (FSM): %s -> %d\n",
-                      d->pref_key ? d->pref_key : "?", (int)*(d->value));
+        // send correct command to stepper controller
+        send_message_to_controller(d->controller_cmd, *(d->value));
+        Serial.printf("Speed dec (Controller): %s -> %d\n",
+                  d->pref_key ? d->pref_key : "?", (int)*(d->value));
     }
 }
 
@@ -1391,14 +1387,10 @@ static void speed_inc_btn_event_cb(lv_event_t* e) {
             Serial.printf("Saved immediately: %s -> %d (verified=%d)\n",
                           d->pref_key, (int)*(d->value), verify);
         }
-        // notify FSM
-        fsm::Event ev{};
-        // Map speed control to a generic event (customize as needed)
-        ev.type = fsm::EventType::BTN_MOVE_TO;
-        ev.int_arg = *(d->value);
-        g_fsm.push_event(ev);
-        Serial.printf("Speed inc (FSM): %s -> %d\n",
-                      d->pref_key ? d->pref_key : "?", (int)*(d->value));
+        // send correct command to stepper controller
+        send_message_to_controller(d->controller_cmd, *(d->value));
+        Serial.printf("Speed inc (Controller): %s -> %d\n",
+                  d->pref_key ? d->pref_key : "?", (int)*(d->value));
     }
 }
 
