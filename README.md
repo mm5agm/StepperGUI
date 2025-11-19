@@ -1,6 +1,6 @@
 # StepperGUI
 
-
+![StepperGUI](StepperGUI.jpg)
 Use at your own risk. 
 ![You should be seeing an image. Looks like it didn't load](c:\users\colin\onedrive\pictures\StepperGUI.jpg)
 
