@@ -1,5 +1,13 @@
 # StepperGUI
 
+
+Use at your own risk. 
+
+This version works for me, it might not work for you. 
+
+I've stopped work on this project for the time being.
+
+
 ESP32-S3 based GUI for controlling stepper motor systems using ESP-NOW wireless communication. Features comprehensive debugging capabilities.
 
 ## Hardware

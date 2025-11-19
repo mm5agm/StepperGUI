@@ -130,10 +130,10 @@ uint8_t controller_mac[] = {0x68, 0x25, 0xDD, 0x30, 0x87, 0xC8};
 static esp_now_peer_info_t peer_info;
 // Function definitions (move any misplaced ones here)
 // Stepper speed pulse delay variables (single definition at file scope)
-static int32_t slow_speed_pulse_delay = 1000;
-static int32_t medium_speed_pulse_delay = 500;
-static int32_t fast_speed_pulse_delay = 200;
-static int32_t move_to_pulse_delay = 800;
+static int32_t slow_speed_pulse_delay = 40;
+static int32_t medium_speed_pulse_delay = 30;
+static int32_t fast_speed_pulse_delay = 10;
+static int32_t move_to_pulse_delay = 5;
 
 // Explicit compile-time defaults used for resets
 #define DEFAULT_SLOW_PULSE_DELAY 1000
@@ -362,13 +362,13 @@ static void create_speed_delay_controls_impl() {
                           label, cont);
         };
 
-    add_speed_control_grouped("Slow", &slow_speed_pulse_delay, 100, 5000, 0,
+    add_speed_control_grouped("Slow", &slow_speed_pulse_delay, 0, 100, 0,
                               "spd_slow", CMD_SLOW_SPEED_PULSE_DELAY);
-    add_speed_control_grouped("Medium", &medium_speed_pulse_delay, 50, 2000, 1,
+    add_speed_control_grouped("Medium", &medium_speed_pulse_delay, 0, 100, 1,
                               "spd_med", CMD_MEDIUM_SPEED_PULSE_DELAY);
-    add_speed_control_grouped("Fast", &fast_speed_pulse_delay, 10, 1000, 2,
+    add_speed_control_grouped("Fast", &fast_speed_pulse_delay, 0, 100, 2,
                               "spd_fast", CMD_FAST_SPEED_PULSE_DELAY);
-    add_speed_control_grouped("MoveTo", &move_to_pulse_delay, 50, 3000, 3,
+    add_speed_control_grouped("MoveTo", &move_to_pulse_delay, 0, 100, 3,
                               "spd_move", CMD_MOVE_TO_PULSE_DELAY);
 
     // No Save/Reset buttons here — persistence happens immediately on +/-
