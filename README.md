@@ -2,8 +2,11 @@
 
 
 Use at your own risk. 
+![You should be seeing an image. Looks like it didn't load](c:\users\colin\onedrive\pictures\StepperGUI.jpg)
 
-This version works for me, it might not work for you. 
+This version works for me, it might not work for you.
+
+email mm5agm@outlook.com
 
 I've stopped work on this project for the time being.
 
